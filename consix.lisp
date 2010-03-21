@@ -140,16 +140,19 @@
 
 (defun random-unclaimed-cell (grid)
   (assert (plusp (current-unclaimed grid)))
-  (let ((n (random (current-unclaimed grid)))
-        (count 0))
-    (dotimes (row grid-rows)
-      (dotimes (col grid-cols)
-        (when (= (cell-ref row col grid) cell-unclaimed)
-          (when (= n count)
-            (return-from random-unclaimed-cell
-              (values row col)))
-          (incf count))))
-    (error "Inconsistent state.")))
+  (loop
+   (let ((n (random (current-unclaimed grid)))
+         (count 0))
+     (dotimes (row grid-rows)
+       (dotimes (col grid-cols)
+         (when (= (cell-ref row col grid) cell-unclaimed)
+           (when (= n count)
+             (return-from random-unclaimed-cell
+               (values row col)))
+           (incf count)))))
+   ;; We can get here when the player is in the middle of claiming;
+   ;; try again.
+   ))
 
 
 ;;;; Halo
