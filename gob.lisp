@@ -382,6 +382,7 @@
 
 (defvar *world*)
 (defvar *tick*)
+(defvar *keys* '())
 
 (defclass world ()
   ((objects-to-delete :initform '() :accessor objects-to-delete)
@@ -597,7 +598,20 @@
 (defmethod glut:keyboard ((w game-window) key x y)
   (declare (ignore x y))
   (case key
-    (#\Esc (outer-world w))))
+    (#\Esc (outer-world w))
+    (t (pushnew key *keys*))))
+
+(defmethod glut:keyboard-up ((w game-window) key x y)
+  (declare (ignore x y))
+  (deletef *keys* key))
+
+(defmethod glut:special ((w game-window) special-key x y)
+  (declare (ignore x y))
+  (pushnew special-key *keys*))
+
+(defmethod glut:special-up ((w game-window) special-key x y)
+  (declare (ignore x y))
+  (deletef *keys* special-key))
 
 (defmethod glut:motion ((w game-window) x y)
   (let ((*world* (world w)))

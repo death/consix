@@ -61,6 +61,7 @@
    
    #:*world*
    #:*tick*
+   #:*keys*
    #:world
    #:tick
    #:add-object
