@@ -147,7 +147,7 @@
 
 ;;;; Configuration
 
-(defparameter *frames-per-second* 30)
+(defparameter *frames-per-second* 60)
 (defparameter *tick-duration* (floor 1000 *frames-per-second*))
 (defparameter *draw-collision-shape-for-type* 'nil)
 (defparameter *draw-tick* nil)
