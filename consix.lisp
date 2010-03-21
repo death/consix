@@ -111,7 +111,8 @@
    (col :initarg :col :accessor col)
    (grid :initarg :grid :accessor grid)
    (halo :initform (make-instance 'halo) :accessor halo)
-   (movement-actions :initform '() :accessor movement-actions)))
+   (movement-actions :initform '() :accessor movement-actions)
+   (claiming :initform nil :accessor claiming-p)))
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
@@ -149,7 +150,8 @@
                          collect (lambda ()
                                    (setf (pos player) target)
                                    (setf (row player) row)
-                                   (setf (col player) col)))))))
+                                   (setf (col player) col)
+                                   (player-changed-cell player)))))))
     (when-let (move (find-if (lambda (move)
                                (destructuring-bind (row col) move
                                  (movement-possible-p row col player)))
@@ -167,7 +169,29 @@
 
 (defun movement-possible-p (row col player)
   (and (valid-cell-p row col)
-       (= cell-edge (cell-ref row col (grid player)))))
+       (or (= cell-edge (cell-ref row col (grid player)))
+           (and (member #\Space *keys*)
+                (= cell-unclaimed (cell-ref row col (grid player)))))))
+
+(defun player-changed-cell (player)
+  (symbol-macrolet ((cell (cell-ref (row player) (col player) (grid player))))
+    (case cell
+      (#.cell-unclaimed
+       (setf cell cell-claiming)
+       (setf (claiming-p player) t))
+      (#.cell-edge
+       (when (claiming-p player)
+         (claim-cells player)
+         (setf (claiming-p player) nil)))
+      (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
+
+(defun claim-cells (player)
+  (map-into (cells (grid player))
+            (lambda (cell)
+              (if (= cell cell-claiming)
+                  cell-edge
+                  cell))
+            (cells (grid player))))
 
 
 ;;;; Game
