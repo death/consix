@@ -80,5 +80,5 @@
    #:define-level))
 
 (defpackage #:consix
-  (:use #:cl #:alexandria)
+  (:use #:cl #:alexandria #:gob)
   (:export))
