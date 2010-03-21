@@ -108,7 +108,7 @@
   (loop with result = '()
         for neighbor-row from (1- row) to (1+ row)
         do (loop for neighbor-col from (1- col) to (1+ col)
-                 when (and (valid-cell-p row col)
+                 when (and (valid-cell-p neighbor-row neighbor-col)
                            (or (/= neighbor-row row)
                                (/= neighbor-col col))
                            (funcall function (cell-ref neighbor-row neighbor-col grid)))
