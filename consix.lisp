@@ -87,6 +87,57 @@
                    (gl:vertex ex ey)
                    (gl:vertex sx ey)))))))
 
+(defun claim-cells (grid)
+  (let ((unclaimed-neighbors '()))
+    (dotimes (row grid-rows)
+      (dotimes (col grid-cols)
+        (symbol-macrolet ((cell (cell-ref row col grid)))
+          (cond ((= cell cell-claiming)
+                 (setf cell cell-edge)
+                 (when (null unclaimed-neighbors)
+                   (setf unclaimed-neighbors
+                         (collect-neighbors-if (lambda (neighbor)
+                                                 (= neighbor cell-unclaimed))
+                                               row col grid))))))))
+    (when unclaimed-neighbors
+      (flood-fill grid (first (first unclaimed-neighbors)) (second (first unclaimed-neighbors))
+                  cell-unclaimed cell-claimed))
+    (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
+
+(defun collect-neighbors-if (function row col grid)
+  (loop with result = '()
+        for neighbor-row from (1- row) to (1+ row)
+        do (loop for neighbor-col from (1- col) to (1+ col)
+                 when (and (valid-cell-p row col)
+                           (or (/= neighbor-row row)
+                               (/= neighbor-col col))
+                           (funcall function (cell-ref neighbor-row neighbor-col grid)))
+                 do (push (list neighbor-row neighbor-col) result))
+        finally (return result)))
+
+(defun flood-fill (grid starting-row starting-col source target)
+  (let ((filled 0)
+        (locations (list (list starting-row starting-col))))
+    (flet ((interesting-p (row col)
+             (and (valid-cell-p row col)
+                  (= source (cell-ref row col grid)))))
+      (do () ((null locations))
+        (destructuring-bind (row col) (pop locations)
+          (let ((value (cell-ref row col grid)))
+            (when (= value source)
+              (let ((left (do ((left col (1- left)))
+                              ((not (interesting-p row left)) left)))
+                    (right (do ((right col (1+ right)))
+                               ((not (interesting-p row right)) right))))
+                (loop for fill-col from (1+ left) below right do
+                      (setf (cell-ref row fill-col grid) target)
+                      (incf filled)
+                      (when (interesting-p (1- row) fill-col)
+                        (push (list (1- row) fill-col) locations))
+                      (when (interesting-p (1+ row) fill-col)
+                        (push (list (1+ row) fill-col) locations)))))))))
+    filled))
+
 
 ;;;; Halo
 
@@ -181,17 +232,9 @@
        (setf (claiming-p player) t))
       (#.cell-edge
        (when (claiming-p player)
-         (claim-cells player)
+         (claim-cells (grid player))
          (setf (claiming-p player) nil)))
       (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
-
-(defun claim-cells (player)
-  (map-into (cells (grid player))
-            (lambda (cell)
-              (if (= cell cell-claiming)
-                  cell-edge
-                  cell))
-            (cells (grid player))))
 
 
 ;;;; Game
