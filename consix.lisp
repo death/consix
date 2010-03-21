@@ -138,6 +138,19 @@
                         (push (list (1+ row) fill-col) locations)))))))))
     filled))
 
+(defun random-unclaimed-cell (grid)
+  (assert (plusp (current-unclaimed grid)))
+  (let ((n (random (current-unclaimed grid)))
+        (count 0))
+    (dotimes (row grid-rows)
+      (dotimes (col grid-cols)
+        (when (= (cell-ref row col grid) cell-unclaimed)
+          (when (= n count)
+            (return-from random-unclaimed-cell
+              (values row col)))
+          (incf count))))
+    (error "Inconsistent state.")))
+
 
 ;;;; Halo
 
@@ -237,6 +250,100 @@
       (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
 
 
+;;;; Enemy
+
+(defclass enemy ()
+  ((pos :initarg :pos :accessor pos)
+   (grid :initarg :grid :accessor grid)
+   (targets :initform nil :accessor targets)
+   (target-angle :initform nil :accessor target-angle)
+   (structure :initarg :structure :accessor enemy-structure)))
+
+(defmethod update ((enemy enemy))
+  (let ((target (first (targets enemy)))
+        (pos (pos enemy)))
+    (cond ((or (null target) (vec=~ pos target 1.0))
+           (loop until (or (null (targets enemy))
+                           (not (vec=~ pos (first (targets enemy)) 1.0)))
+                 do (pop (targets enemy)))
+           (when (null (targets enemy))
+             (setf (targets enemy) (pick-target-curve enemy)))
+           (setf target (first (targets enemy)))
+           (setf (target-angle enemy) (vec-angle (vec- pos target))))
+          (t
+           (vec+= pos (vel-vec 0.5 (vec- target pos)))
+           (let ((last-angle (target-angle enemy)))
+             (map-into (enemy-structure enemy)
+                       (lambda (x)
+                         (let ((inc (max -10.0 (min 10.0 (/ (- last-angle x) 10.0)))))
+                           (setf last-angle (- x last-angle))
+                           (+ inc x)))
+                       (enemy-structure enemy)))))))
+
+(defun pick-target-curve (enemy)
+  (let ((pos (pos enemy))
+        (others (loop repeat 3 collect
+                      (multiple-value-call #'cell-center-position
+                        (random-unclaimed-cell (grid enemy))))))
+    (let ((xs (list* (x pos) (mapcar #'x others)))
+          (ys (list* (y pos) (mapcar #'y others)))
+          (curve '()))
+      (gob::call-with-curve-multipliers
+       (lambda (&rest ms)
+         (push (vec (reduce #'+ (mapcar #'* xs ms))
+                    (reduce #'+ (mapcar #'* ys ms)))
+               curve)))
+      (nreverse curve))))
+    
+(defmethod render ((enemy enemy))
+  (gl:with-pushed-matrix
+    (with-vec (x y (pos enemy))
+      (gl:translate x y 0.0))
+    (gl:color 1.0 1.0 0.0)
+    (render-structure (enemy-structure enemy))))
+
+(defun render-structure (object)
+  (typecase object
+    (atom)
+    (cons
+     (gl:rotate (car object) 0.0 0.0 1.0)
+     (render-box-pair)
+     (if (cdr object)
+         (gl:with-pushed-matrix
+           (gl:translate 6.0 0.0 0.0)
+           (render-arrow)
+           (gl:with-pushed-matrix
+             (gl:translate 6.0 0.0 0.0)
+             (render-structure (cdr object))))
+         (gl:with-pushed-matrix
+           (gl:translate 4.0 0.0 0.0)
+           (render-box-filling))))))
+
+(defun render-box-pair ()
+  (gl:with-primitive :line-loop
+    (gl:vertex 0 -2)
+    (gl:vertex 8 -2)
+    (gl:vertex 8 +2)
+    (gl:vertex 0 +2))
+  (gl:with-primitive :lines
+    (gl:vertex 4 -2)
+    (gl:vertex 4 +2)))
+
+(defun render-arrow ()
+  (gl:with-primitive :lines
+    (gl:vertex 0 0)
+    (gl:vertex 4 0))
+  (gl:with-primitive :line-loop
+    (gl:vertex 4 -1)
+    (gl:vertex 6 0)
+    (gl:vertex 4 +1)))
+
+(defun render-box-filling ()
+  (gl:with-primitive :lines
+    (gl:vertex 4 +2)
+    (gl:vertex 0 -2)))
+
+
 ;;;; Game
 
 (defclass consix-window (game-window)
@@ -246,7 +353,8 @@
 
 (define-level (consix :test-order '(player t))
   (grid :named grid)
-  (player :row (1- grid-rows) :col (floor grid-cols 2) :grid grid))
+  (player :row (1- grid-rows) :col (floor grid-cols 2) :grid grid)
+  (enemy :pos (vec 0 0) :structure (list 0.0 0.0 0.0) :grid grid))
 
 (defun game ()
   (glut:display-window
