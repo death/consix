@@ -103,12 +103,15 @@
 
 ;;;; Player
 
+(defconstant player-movement-steps 3)
+
 (defclass player ()
   ((pos :accessor pos)
    (row :initarg :row :accessor row)
    (col :initarg :col :accessor col)
    (grid :initarg :grid :accessor grid)
-   (halo :initform (make-instance 'halo) :accessor halo)))
+   (halo :initform (make-instance 'halo) :accessor halo)
+   (movement-actions :initform '() :accessor movement-actions)))
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
@@ -117,6 +120,10 @@
     (setf (pos player) (cell-center-position row col))))
 
 (defmethod update ((player player))
+  (when (null (movement-actions player))
+    (maybe-queue-movement-actions player))
+  (when-let (action (pop (movement-actions player)))
+    (funcall action))
   (halo-update (halo player)))
 
 (defmethod render ((player player))
@@ -128,6 +135,39 @@
         (draw-circle (- 5 i) 30 t))
       (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
       (draw-circle 5))))
+
+(defun maybe-queue-movement-actions (player)
+  (flet ((goto (row col)
+           (let* ((target (cell-center-position row col))
+                  (step (vec/ (vec- target (pos player))
+                              (float player-movement-steps))))
+             (setf (movement-actions player)
+                   (loop for i from 1 to player-movement-steps
+                         if (< i player-movement-steps)
+                         collect (lambda () (vec+= (pos player) step))
+                         else
+                         collect (lambda ()
+                                   (setf (pos player) target)
+                                   (setf (row player) row)
+                                   (setf (col player) col)))))))
+    (when-let (move (find-if (lambda (move)
+                               (destructuring-bind (row col) move
+                                 (movement-possible-p row col player)))
+                             (requested-moves (row player) (col player))))
+      (apply #'goto move))))
+
+(defun requested-moves (row col)
+  (remove nil (mapcar (lambda (key)
+                        (case key
+                          (:key-left (list row (1- col)))
+                          (:key-right (list row (1+ col)))
+                          (:key-up (list (1+ row) col))
+                          (:key-down (list (1- row) col))))
+                      *keys*)))
+
+(defun movement-possible-p (row col player)
+  (and (valid-cell-p row col)
+       (= cell-edge (cell-ref row col (grid player)))))
 
 
 ;;;; Game
