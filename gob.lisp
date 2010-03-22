@@ -178,7 +178,7 @@
 (defun unit (&optional (dir 0.0))
   (if (consp dir)
       (vec/ dir (vec-mag dir))
-      (vec (sind dir) (cosd dir))))
+      (vec (- (cosd dir)) (- (sind dir)))))
 
 (defun vec-clear (vec)
   (setf (x vec) 0.0)
