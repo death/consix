@@ -120,13 +120,14 @@
             (do-neighbors-case (nrow ncol row col grid)
               (#.cell-unclaimed (push (list nrow ncol) unclaimed-neighbors)))))))
     (when unclaimed-neighbors
-      (claim-one-part unclaimed-neighbors grid))
+      (claim-parts unclaimed-neighbors grid))
     (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
 
-(defun claim-one-part (possibilities grid)
+(defun claim-parts (possibilities grid)
+  (declare (optimize (debug 3) (speed 0) (safety 3) (space 0)))
   (let ((part-n 0)
-        (locations (vector nil nil))
-        (unclaimed (vector 0 0)))
+        (locations (make-array 1 :adjustable t :initial-element nil))
+        (unclaimed (make-array 1 :adjustable t :initial-element 0)))
     (do () ((null possibilities))
       (let ((filled nil)
             (location (pop possibilities)))
@@ -138,22 +139,24 @@
                         (setf filled t)))
           (when filled
             (setf (aref locations part-n) location)
-            (incf part-n)))))
+            (incf part-n)
+            (adjust-array locations (1+ part-n) :initial-element nil)
+            (adjust-array unclaimed (1+ part-n) :initial-element 0)))))
     (flet ((ff (location target)
              (destructuring-bind (row col) location
                (flood-fill grid row col cell-fill
                            (lambda (frow fcol)
                              (setf (cell-ref frow fcol grid) target))))))
-      (cond ((and (aref locations 0) (aref locations 1))
-             (multiple-value-bind (smaller bigger)
-                 (if (< (aref unclaimed 0) (aref unclaimed 1))
-                     (values (aref locations 0) (aref locations 1))
-                     (values (aref locations 1) (aref locations 0)))
-               (ff smaller cell-claimed)
-               (ff bigger cell-unclaimed)))
-            (t (ff (or (aref locations 0)
-                       (aref locations 1))
-                   cell-unclaimed))))))
+      (let ((most-unclaimed (reduce #'max unclaimed))
+            (filled-biggest nil))
+        (loop for location across locations
+              for n across unclaimed
+              do (cond ((null location))
+                       ((or filled-biggest (< n most-unclaimed))
+                        (ff location cell-claimed))
+                       (t
+                        (ff location cell-unclaimed)
+                        (setf filled-biggest t))))))))
 
 (defun flood-fill (grid starting-row starting-col source visitor)
   (let ((locations (list (list starting-row starting-col))))
