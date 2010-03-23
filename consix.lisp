@@ -311,7 +311,8 @@
                  (choose-target-cell row col enemy)))))
   (when (null (death-tick enemy))
     (enemy-fix-direction enemy)
-    (enemy-forward enemy)))
+    (enemy-forward enemy)
+    (enemy-check-claiming enemy)))
 
 (defun need-new-target-p (row col enemy)
   (or (and (null (target-row enemy))
@@ -448,6 +449,49 @@
   (gl:with-primitive :lines
     (gl:vertex 4 +2)
     (gl:vertex 0 -2)))
+
+(defparameter *identity-matrix*
+  #(1.0d0 0.0d0 0.0d0 0.0d0
+    0.0d0 1.0d0 0.0d0 0.0d0
+    0.0d0 0.0d0 1.0d0 0.0d0
+    0.0d0 0.0d0 0.0d0 1.0d0))
+
+(defun structure-positions (object)
+  ;; Eewww, what a disgusting hack!
+  (let ((positions '()))
+    (flet ((add (x y)
+             (multiple-value-bind (x y)
+                 (glu:project x y 0.0 :projection *identity-matrix* :viewport #(-1 -1 2 2))
+               (push (vec x y) positions))))
+      (typecase object
+        (atom '())
+        (cons
+         (gl:rotate (car object) 0.0 0.0 1.0)
+         (add 2.0 0.0)
+         (add 6.0 0.0)
+         (cond ((cdr object)
+                (gl:translate 12.0 0.0 0.0)
+                (nconc positions (structure-positions (cdr object))))
+               (t positions)))))))
+
+(defun structure-positions-toplevel (enemy)
+  (gl:with-pushed-matrix
+    (with-vec (x y (pos enemy))
+      (gl:translate x y 0.0))
+    (structure-positions (enemy-structure enemy))))
+
+(defun enemy-check-claiming (enemy)
+  (dolist (pos (structure-positions-toplevel enemy))
+    (multiple-value-bind (row col)
+        (cell-row/col pos)
+      (when (and (valid-cell-p row col)
+                 (= cell-claiming (cell-ref row col (grid enemy))))
+        (enemy-kill-player enemy)))))
+
+(defun enemy-kill-player (enemy)
+  (declare (ignore enemy))
+  (do-objects (player :type 'player)
+    (remove-object player)))
 
 
 ;;;; Game
