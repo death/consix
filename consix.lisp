@@ -416,16 +416,14 @@
     (cons
      (gl:rotate (car object) 0.0 0.0 1.0)
      (render-box-pair)
-     (if (cdr object)
-         (gl:with-pushed-matrix
-           (gl:translate 6.0 0.0 0.0)
-           (render-arrow)
-           (gl:with-pushed-matrix
-             (gl:translate 6.0 0.0 0.0)
-             (render-structure (cdr object))))
-         (gl:with-pushed-matrix
-           (gl:translate 4.0 0.0 0.0)
-           (render-box-filling))))))
+     (cond ((cdr object)
+            (gl:translate 6.0 0.0 0.0)
+            (render-arrow)
+            (gl:translate 6.0 0.0 0.0)
+            (render-structure (cdr object)))
+           (t
+            (gl:translate 4.0 0.0 0.0)
+            (render-box-filling))))))
 
 (defun render-box-pair ()
   (gl:with-primitive :line-loop
