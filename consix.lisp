@@ -124,39 +124,40 @@
     (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
 
 (defun claim-parts (possibilities grid)
-  (declare (optimize (debug 3) (speed 0) (safety 3) (space 0)))
-  (let ((part-n 0)
-        (locations (make-array 1 :adjustable t :initial-element nil))
-        (unclaimed (make-array 1 :adjustable t :initial-element 0)))
-    (do () ((null possibilities))
-      (let ((filled nil)
-            (location (pop possibilities)))
-        (destructuring-bind (row col) location
-          (flood-fill grid row col cell-unclaimed
-                      (lambda (frow fcol)
-                        (incf (aref unclaimed part-n))
-                        (setf (cell-ref frow fcol grid) cell-fill)
-                        (setf filled t)))
-          (when filled
-            (setf (aref locations part-n) location)
-            (incf part-n)
-            (adjust-array locations (1+ part-n) :initial-element nil)
-            (adjust-array unclaimed (1+ part-n) :initial-element 0)))))
-    (flet ((ff (location target)
-             (destructuring-bind (row col) location
-               (flood-fill grid row col cell-fill
-                           (lambda (frow fcol)
-                             (setf (cell-ref frow fcol grid) target))))))
-      (let ((most-unclaimed (reduce #'max unclaimed))
-            (filled-biggest nil))
-        (loop for location across locations
-              for n across unclaimed
-              do (cond ((null location))
-                       ((or filled-biggest (< n most-unclaimed))
-                        (ff location cell-claimed))
-                       (t
-                        (ff location cell-unclaimed)
-                        (setf filled-biggest t))))))))
+  (let* ((parts (fill-claimable-parts possibilities grid))
+         (most-unclaimed (reduce #'max parts :key #'second))
+         (filled-biggest nil))
+    (dolist (part parts)
+      (destructuring-bind (location unclaimed) part
+        (flet ((ff (target)
+                 (destructuring-bind (row col) location
+                   (flood-fill grid row col cell-fill
+                               (lambda (frow fcol)
+                                 (setf (cell-ref frow fcol grid) target))))))
+          (cond ((null location))
+                ((or filled-biggest (< unclaimed most-unclaimed))
+                 (ff cell-claimed))
+                (t
+                 (ff cell-unclaimed)
+                 (setf filled-biggest t))))))))
+
+(defun fill-claimable-parts (possibilities grid)
+  (let ((parts (list (list nil 0))))
+    (symbol-macrolet ((part-location (first (first parts)))
+                      (part-unclaimed (second (first parts))))
+      (do () ((null possibilities))
+        (let ((filled nil)
+              (location (pop possibilities)))
+          (destructuring-bind (row col) location
+            (flood-fill grid row col cell-unclaimed
+                        (lambda (frow fcol)
+                          (incf part-unclaimed)
+                          (setf (cell-ref frow fcol grid) cell-fill)
+                          (setf filled t)))
+            (when filled
+              (setf part-location location)
+              (push (list nil 0) parts))))))
+    parts))
 
 (defun flood-fill (grid starting-row starting-col source visitor)
   (let ((locations (list (list starting-row starting-col))))
