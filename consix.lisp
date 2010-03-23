@@ -147,21 +147,17 @@
                         (push (list (1+ row) fill-col) locations)))))))))
     filled))
 
-(defun random-unclaimed-cell (grid)
-  (assert (plusp (current-unclaimed grid)))
-  (loop
-   (let ((n (random (current-unclaimed grid)))
-         (count 0))
-     (dotimes (row grid-rows)
-       (dotimes (col grid-cols)
-         (when (= (cell-ref row col grid) cell-unclaimed)
-           (when (= n count)
-             (return-from random-unclaimed-cell
-               (values row col)))
-           (incf count)))))
-   ;; We can get here when the player is in the middle of claiming;
-   ;; try again.
-   ))
+(defun cell-weight (row col grid)
+  (case (cell-ref row col grid)
+    ((#.cell-edge #.cell-claimed) 0)
+    (#.cell-unclaimed
+     (let ((edge 0)
+           (claiming 0))
+       (do-neighbors-case (nrow ncol row col grid)
+         (#.cell-edge (incf edge))
+         (#.cell-claiming (incf claiming)))
+       (+ 8 (- edge) claiming)))
+    (#.cell-claiming 16)))
 
 
 ;;;; Halo
@@ -264,49 +260,104 @@
 
 ;;;; Enemy
 
+(defconstant enemy-inertia 7)
+
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
    (grid :initarg :grid :accessor grid)
-   (targets :initform nil :accessor targets)
-   (target-angle :initform nil :accessor target-angle)
+   (target-row :initform nil :accessor target-row)
+   (target-col :initform nil :accessor target-col)
    (structure :initarg :structure :accessor enemy-structure)))
 
 (defmethod update ((enemy enemy))
-  (let ((target (first (targets enemy)))
-        (pos (pos enemy)))
-    (cond ((or (null target) (vec=~ pos target 1.0))
-           (loop until (or (null (targets enemy))
-                           (not (vec=~ pos (first (targets enemy)) 1.0)))
-                 do (pop (targets enemy)))
-           (when (null (targets enemy))
-             (setf (targets enemy) (pick-target-curve enemy)))
-           (setf target (first (targets enemy)))
-           (setf (target-angle enemy) (vec-angle (vec- pos target))))
-          (t
-           (vec+= pos (vel-vec 0.5 (vec- target pos)))
-           (let ((last-angle (target-angle enemy)))
-             (map-into (enemy-structure enemy)
-                       (lambda (x)
-                         (let ((inc (max -10.0 (min 10.0 (/ (- last-angle x) 10.0)))))
-                           (setf last-angle (- x last-angle))
-                           (+ inc x)))
-                       (enemy-structure enemy)))))))
+  (multiple-value-bind (row col)
+      (cell-row/col (pos enemy))
+    (when (need-new-target-p row col enemy)
+      (setf (values (target-row enemy) (target-col enemy))
+            (choose-target-cell row col enemy))))
+  (enemy-fix-direction enemy)
+  (enemy-forward enemy))
 
-(defun pick-target-curve (enemy)
-  (let ((pos (pos enemy))
-        (others (loop repeat 3 collect
-                      (multiple-value-call #'cell-center-position
-                        (random-unclaimed-cell (grid enemy))))))
-    (let ((xs (list* (x pos) (mapcar #'x others)))
-          (ys (list* (y pos) (mapcar #'y others)))
-          (curve '()))
-      (gob::call-with-curve-multipliers
-       (lambda (&rest ms)
-         (push (vec (reduce #'+ (mapcar #'* xs ms))
-                    (reduce #'+ (mapcar #'* ys ms)))
-               curve)))
-      (nreverse curve))))
-    
+(defun need-new-target-p (row col enemy)
+  (or (and (null (target-row enemy))
+           (null (target-col enemy)))
+      (and (= row (target-row enemy))
+           (= col (target-col enemy)))))
+
+(defun choose-target-cell (row col enemy)
+  (if (= 0 (random enemy-inertia))
+      (choose-target-cell-by-weight row col enemy)
+      (choose-target-cell-by-direction row col enemy)))
+
+(defun choose-target-cell-by-weight (row col enemy)
+  (let* ((neighbors (collect-potential-target-cells row col (grid enemy)))
+         (weights-sum (reduce #'+ neighbors :key #'first))
+         (choice (random weights-sum)))
+    (loop for (weight nrow ncol) in neighbors
+          summing weight into sum
+          when (>= sum choice)
+          return (values nrow ncol))))
+
+(defun angle- (angle-1 angle-2)
+  (let ((d1 (normalize-deg (- angle-1 angle-2)))
+        (d2 (normalize-deg (- angle-2 angle-1))))
+    (if (< d1 d2)
+        (values d1 '+)
+        (values d2 '-))))
+
+(defun head-angle (enemy)
+  (first (enemy-structure enemy)))
+
+(defun (setf head-angle) (new-value enemy)
+  (setf (first (enemy-structure enemy)) new-value))
+
+(defun choose-target-cell-by-direction (row col enemy)
+  (let ((best-row nil)
+        (best-col nil)
+        (best-angle nil)
+        (source-angle (head-angle enemy)))
+    (do-neighbors-case (nrow ncol row col (grid enemy))
+      ((#.cell-unclaimed #.cell-claiming)
+       (let* ((neighbor-position (cell-center-position nrow ncol))
+              (angle (compute-target-angle (pos enemy) neighbor-position)))
+         (when (or (null best-angle)
+                   (< (angle- source-angle angle)
+                      (angle- source-angle best-angle)))
+           (setf best-row nrow)
+           (setf best-col ncol)
+           (setf best-angle angle)))))
+    (values best-row best-col)))
+                            
+(defun compute-target-angle (source-position target-position)
+  (if (vec=~ source-position target-position)
+      0.0
+      (normalize-deg (vec-angle (vec- source-position target-position)))))
+
+(defun enemy-fix-direction (enemy)
+  (let* ((target-position (cell-center-position (target-row enemy) (target-col enemy)))
+         (target-angle (compute-target-angle (pos enemy) target-position))
+         (head-angle (head-angle enemy)))
+    (multiple-value-bind (difference op)
+        (angle- target-angle head-angle)
+      (let ((new-angle (funcall op head-angle (/ difference 10.0))))
+        (setf (head-angle enemy) new-angle)
+        (map-into (rest (enemy-structure enemy))
+                  (lambda (x)
+                    (prog1 (* 2.0 (- head-angle new-angle))
+                      (setf head-angle (+ x new-angle))))
+                  (rest (enemy-structure enemy)))))))
+
+(defun enemy-forward (enemy)
+  (vec+= (pos enemy) (vel-vec 0.2 (first (enemy-structure enemy)))))
+
+(defun collect-potential-target-cells (row col grid)
+  (let ((result '()))
+    (do-neighbors (nrow ncol cell row col grid)
+      (let ((weight (cell-weight nrow ncol grid)))
+        (when (plusp weight)
+          (push (list weight nrow ncol) result))))
+    result))
+
 (defmethod render ((enemy enemy))
   (gl:with-pushed-matrix
     (with-vec (x y (pos enemy))
