@@ -87,33 +87,42 @@
                    (gl:vertex ex ey)
                    (gl:vertex sx ey)))))))
 
+(defun map-neighbors (function row col grid)
+  (loop for nrow from (1- row) to (1+ row)
+        do (loop for ncol from (1- col) to (1+ col)
+                 when (and (valid-cell-p nrow ncol)
+                           (or (/= nrow row)
+                               (/= ncol col)))
+                 do (funcall function nrow ncol
+                             (cell-ref nrow ncol grid)))))
+
+(defmacro do-neighbors ((nrow-var ncol-var ncell-var row col grid) &body forms)
+  `(block nil
+     (map-neighbors (lambda (,nrow-var ,ncol-var ,ncell-var)
+                      (declare (ignorable ,nrow-var ,ncol-var ,ncell-var))
+                      ,@forms)
+                    ,row ,col ,grid)))
+
+(defmacro do-neighbors-case ((nrow-var ncol-var row col grid) &body cases)
+  (let ((ncell (gensym)))
+    `(do-neighbors (,nrow-var ,ncol-var ,ncell ,row ,col ,grid)
+       (case ,ncell
+         ,@cases))))
+
 (defun claim-cells (grid)
   (let ((unclaimed-neighbors '()))
     (dotimes (row grid-rows)
       (dotimes (col grid-cols)
         (symbol-macrolet ((cell (cell-ref row col grid)))
-          (cond ((= cell cell-claiming)
-                 (setf cell cell-edge)
-                 (when (null unclaimed-neighbors)
-                   (setf unclaimed-neighbors
-                         (collect-neighbors-if (lambda (neighbor)
-                                                 (= neighbor cell-unclaimed))
-                                               row col grid))))))))
+          (when (= cell cell-claiming)
+            (setf cell cell-edge)
+            (when (null unclaimed-neighbors)
+              (do-neighbors-case (nrow ncol row col grid)
+                (#.cell-unclaimed (push (list nrow ncol) unclaimed-neighbors))))))))
     (when unclaimed-neighbors
       (flood-fill grid (first (first unclaimed-neighbors)) (second (first unclaimed-neighbors))
                   cell-unclaimed cell-claimed))
     (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
-
-(defun collect-neighbors-if (function row col grid)
-  (loop with result = '()
-        for neighbor-row from (1- row) to (1+ row)
-        do (loop for neighbor-col from (1- col) to (1+ col)
-                 when (and (valid-cell-p neighbor-row neighbor-col)
-                           (or (/= neighbor-row row)
-                               (/= neighbor-col col))
-                           (funcall function (cell-ref neighbor-row neighbor-col grid)))
-                 do (push (list neighbor-row neighbor-col) result))
-        finally (return result)))
 
 (defun flood-fill (grid starting-row starting-col source target)
   (let ((filled 0)
