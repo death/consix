@@ -288,22 +288,30 @@
 ;;;; Enemy
 
 (defconstant enemy-inertia 7)
+(defconstant enemy-death-ticks 64)
 
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
    (grid :initarg :grid :accessor grid)
    (target-row :initform nil :accessor target-row)
    (target-col :initform nil :accessor target-col)
-   (structure :initarg :structure :accessor enemy-structure)))
+   (structure :initarg :structure :accessor enemy-structure)
+   (death-tick :initform nil :accessor death-tick)))
 
 (defmethod update ((enemy enemy))
   (multiple-value-bind (row col)
       (cell-row/col (pos enemy))
-    (when (need-new-target-p row col enemy)
-      (setf (values (target-row enemy) (target-col enemy))
-            (choose-target-cell row col enemy))))
-  (enemy-fix-direction enemy)
-  (enemy-forward enemy))
+    (cond ((death-tick enemy)
+           (when (= (incf (death-tick enemy)) enemy-death-ticks)
+             (remove-object enemy)))
+          ((= cell-claimed (cell-ref row col (grid enemy)))
+           (setf (death-tick enemy) 0))
+          ((need-new-target-p row col enemy)
+           (setf (values (target-row enemy) (target-col enemy))
+                 (choose-target-cell row col enemy)))))
+  (when (null (death-tick enemy))
+    (enemy-fix-direction enemy)
+    (enemy-forward enemy)))
 
 (defun need-new-target-p (row col enemy)
   (or (and (null (target-row enemy))
@@ -389,8 +397,18 @@
   (gl:with-pushed-matrix
     (with-vec (x y (pos enemy))
       (gl:translate x y 0.0))
-    (gl:color 1.0 1.0 0.0)
+    (multiple-value-bind (alpha scale)
+        (enemy-alpha-and-scale enemy)
+      (gl:scale scale scale 1.0)
+      (gl:color 1.0 1.0 0.0 alpha))
     (render-structure (enemy-structure enemy))))
+
+(defun enemy-alpha-and-scale (enemy)
+  (if (null (death-tick enemy))
+      (values 1.0 1.0)
+      (let ((ratio (float (/ (death-tick enemy) enemy-death-ticks))))
+        (values (- 1.0 ratio)
+                (+ 1.0 (* 3.0 ratio))))))
 
 (defun render-structure (object)
   (typecase object
