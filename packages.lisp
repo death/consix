@@ -5,6 +5,8 @@
 (defpackage #:gob
   (:use #:cl #:alexandria)
   (:export
+   #:normalize-deg
+
    #:draw-circle
    #:draw-star
    #:draw-cubic-curve
@@ -82,4 +84,4 @@
 
 (defpackage #:consix
   (:use #:cl #:alexandria #:gob)
-  (:export))
+  (:export #:game))
