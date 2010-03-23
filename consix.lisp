@@ -375,7 +375,7 @@
                   (rest (enemy-structure enemy)))))))
 
 (defun enemy-forward (enemy)
-  (vec+= (pos enemy) (vel-vec 0.2 (first (enemy-structure enemy)))))
+  (vec+= (pos enemy) (vel-vec 0.2 (head-angle enemy))))
 
 (defun collect-potential-target-cells (row col grid)
   (let ((result '()))
