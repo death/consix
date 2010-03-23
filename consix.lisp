@@ -439,7 +439,7 @@
 (defclass consix-window (game-window)
   ()
   (:default-initargs
-   :title "Consix"))
+   :title "CONSIX"))
 
 (define-level (consix :test-order '(player t))
   (grid :named grid)
