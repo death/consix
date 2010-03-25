@@ -7,23 +7,23 @@
 
 ;;;; Grid
 
-(defconstant cell-unclaimed #x00)
-(defconstant cell-claimed   #x01)
-(defconstant cell-claiming  #x02)
-(defconstant cell-edge      #x03)
-(defconstant cell-fill      #x04)
+(defconstant* cell-unclaimed #x00)
+(defconstant* cell-claimed   #x01)
+(defconstant* cell-claiming  #x02)
+(defconstant* cell-edge      #x03)
+(defconstant* cell-fill      #x04)
 
-(defconstant grid-rows 90)
-(defconstant grid-cols 90)
-(defconstant num-cells (* grid-rows grid-cols))
+(defconstant* grid-rows 90)
+(defconstant* grid-cols 90)
+(defconstant* num-cells (* grid-rows grid-cols))
 
-(defconstant cell-width 2)
-(defconstant cell-height 2)
+(defconstant* cell-width 2)
+(defconstant* cell-height 2)
 
-(defconstant grid-x-offset (floor (* grid-cols cell-width) -2))
-(defconstant grid-y-offset (floor (* grid-rows cell-height) -2))
+(defconstant* grid-x-offset (floor (* grid-cols cell-width) -2))
+(defconstant* grid-y-offset (floor (* grid-rows cell-height) -2))
 
-(defconstant cell-weight-radius 3)
+(defconstant* cell-weight-radius 1)
 
 (defvar *weight-computation* :compute)
 
@@ -155,7 +155,7 @@
     ((#.cell-unclaimed #.cell-fill) 0.3)
     ((#.cell-claiming) 1.0)))
 
-(defconstant distance-weights-offset
+(defconstant* distance-weights-offset
   (+ cell-weight-radius (* cell-weight-radius grid-cols)))
 
 (defun compute-distance-weights ()
@@ -339,8 +339,8 @@
 
 ;;;; Player
 
-(defconstant player-movement-steps 3)
-(defconstant player-life-bonus 500000)
+(defconstant* player-movement-steps 3)
+(defconstant* player-life-bonus 500000)
 
 (defclass player ()
   ((pos :accessor pos)
@@ -446,10 +446,10 @@
 
 ;;;; Enemy
 
-(defconstant enemy-death-ticks 64)
-(defconstant enemy-growth-completion-ticks 64)
-(defconstant enemy-flexibility 1.5)
-(defconstant enemy-max-size 8)
+(defconstant* enemy-death-ticks 64)
+(defconstant* enemy-growth-completion-ticks 64)
+(defconstant* enemy-flexibility 1.5)
+(defconstant* enemy-max-size 8)
 
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
@@ -668,7 +668,7 @@
 
 ;;;; Level timer
 
-(defconstant enemy-growth-ticks 1000)
+(defconstant* enemy-growth-ticks 1000)
 
 (defclass level-timer ()
   ())

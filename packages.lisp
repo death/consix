@@ -5,6 +5,7 @@
 (defpackage #:gob
   (:use #:cl #:alexandria)
   (:export
+   #:defconstant*
    #:defsubst
    #:normalize-deg
    #:square

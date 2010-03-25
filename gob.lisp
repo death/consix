@@ -7,13 +7,17 @@
 
 ;;;; Utilities
 
+(defmacro defconstant* (name value)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (cl:defconstant ,name ,value)))
+
 (defmacro defsubst (name lambda-list &body forms)
   "Define an inline function at top level."
   `(progn
      (declaim (inline ,name))
      (defun ,name ,lambda-list ,@forms)))
 
-(defconstant single-pi (coerce pi 'single-float))
+(defconstant* single-pi (coerce pi 'single-float))
 
 (defsubst rad (deg)
   (/ (* single-pi deg) 180.0))
