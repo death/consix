@@ -22,7 +22,7 @@
 (defconstant grid-x-offset (floor (* grid-cols cell-width) -2))
 (defconstant grid-y-offset (floor (* grid-rows cell-height) -2))
 
-(defconstant cell-weight-radius 2)
+(defconstant cell-weight-radius 3)
 
 (defvar *weight-computation* :compute)
 
@@ -135,7 +135,7 @@
   (let ((index (+ (* row grid-cols) col)))
     (unless (= new-value (aref (weights grid) index))
       (setf (aref (weights grid) index) new-value)
-      (do-neighbors (nrow ncol row col :radius cell-weight-radius)
+      (do-neighbors (nrow ncol row col)
         (setf (cell-weight nrow ncol grid)
               (compute-cell-weight nrow ncol grid)))))
   new-value)
