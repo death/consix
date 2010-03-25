@@ -7,6 +7,7 @@
   (:export
    #:defsubst
    #:normalize-deg
+   #:square
 
    #:draw-circle
    #:draw-star

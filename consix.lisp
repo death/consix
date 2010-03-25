@@ -22,16 +22,26 @@
 (defconstant grid-x-offset (floor (* grid-cols cell-width) -2))
 (defconstant grid-y-offset (floor (* grid-rows cell-height) -2))
 
+(defconstant cell-weight-radius 2)
+
+(defvar *weight-computation* :compute)
+
+(defvar *render-cell-weights* nil)
+
 (deftype cell () '(unsigned-byte 8))
+(deftype weight () 'single-float)
+(deftype small-integer () '(integer -1000 1000))
 
 (defclass grid ()
   ((total-unclaimed :accessor total-unclaimed)
    (current-unclaimed :accessor current-unclaimed)
-   (cells :accessor cells)))
+   (cells :accessor cells)
+   (weights :accessor weights)))
 
 (defmethod initialize-instance :after ((grid grid) &rest initargs)
   (declare (ignore initargs))
   (setf (cells grid) (make-cells))
+  (setf (weights grid) (make-weights grid))
   (setf (total-unclaimed grid) (count cell-unclaimed (cells grid)))
   (setf (current-unclaimed grid) (total-unclaimed grid)))
 
@@ -48,23 +58,147 @@
         (setf (ref (1- grid-rows) col) cell-edge)))
     cells))
 
-(defun cell-ref (row col grid)
-  (aref (cells grid) (+ (* row grid-cols) col)))
+(defun make-weights (grid)
+  (compute-cell-weights
+   (make-array (* grid-rows grid-cols)
+               :element-type 'weight)
+   grid))
+
+(defun compute-cell-weights (weights grid)
+  (macrolet ((ref (row col) `(aref weights (+ ,col (* ,row grid-cols)))))
+    (dotimes (row grid-rows)
+      (dotimes (col grid-cols)
+        (setf (ref row col)
+              (compute-cell-weight row col grid)))))
+  weights)
+
+(defun call-with-weight-computation (function value grid)
+  (let ((*weight-computation* value))
+    (funcall function)
+    (when (eq :delay value)
+      (compute-cell-weights (weights grid) grid))))
+  
+(defmacro with-weight-computation ((value grid) &body forms)
+  `(call-with-weight-computation (lambda () ,@forms) ,value ,grid))
+
+(defsubst cell-ref/index (index grid)
+  (aref (the (simple-array cell) (cells grid)) index))
+
+(defsubst cell-ref (row col grid)
+  (cell-ref/index (+ (* row grid-cols) col) grid))
 
 (defun (setf cell-ref) (new-value row col grid)
-  (setf (aref (cells grid) (+ (* row grid-cols) col)) new-value))
+  (let ((index (+ (* row grid-cols) col)))
+    (unless (= new-value (aref (cells grid) index))
+      (setf (aref (cells grid) index) new-value)
+      (when (eq :compute *weight-computation*)
+        (setf (cell-weight row col grid) (compute-cell-weight row col grid)))))
+  new-value)
 
-(defun cell-center-position (row col)
+(defmacro do-neighbors ((nrow-var ncol-var row col &key (radius 1) (include-self nil) index) &body forms)
+  (with-gensyms (min-row max-row min-col max-col row-index)
+    (once-only (row col radius)
+      `(let ((,min-row (max 0 (- ,row ,radius)))
+             (,max-row (min (1- grid-rows) (+ ,row ,radius)))
+             (,min-col (max 0 (- ,col ,radius)))
+             (,max-col (min (1- grid-cols) (+ ,col ,radius))))
+         (declare (type small-integer ,min-row ,max-row ,min-col ,max-col ,radius ,row ,col))
+         (do ((,nrow-var ,min-row (1+ ,nrow-var))
+              ,@(when index `((,row-index (+ ,min-col (* ,min-row grid-cols))
+                                          (+ ,row-index grid-cols)))))
+             ((> ,nrow-var ,max-row))
+           (declare (type small-integer ,nrow-var))
+           ,@(when index `((declare (type array-index ,row-index))))
+           (declare (ignorable ,nrow-var))
+           (do ((,ncol-var ,min-col (1+ ,ncol-var))
+                ,@(when index `((,index ,row-index (1+ ,index)))))
+               ((> ,ncol-var ,max-col))
+             (declare (type small-integer ,ncol-var))
+             ,@(when index `((declare (type array-index ,index))))
+             (declare (ignorable ,ncol-var))
+             ,(if include-self
+                  `(progn ,@forms)
+                  `(when (and (/= ,nrow-var ,row) (/= ,ncol-var ,col))
+                     ,@forms))))))))
+
+(defmacro do-neighbor-cells ((nrow-var ncol-var ncell-var row col grid &key (radius 1) (include-self nil)) &body forms)
+  (let ((index (gensym)))
+    `(do-neighbors (,nrow-var ,ncol-var ,row ,col :radius ,radius :include-self ,include-self :index ,index)
+       (let ((,ncell-var (cell-ref/index ,index ,grid)))
+         (declare (type cell ,ncell-var))
+         ,@forms))))
+
+(defsubst cell-weight (row col grid)
+  (aref (weights grid) (+ col (* row grid-cols))))
+
+(defun (setf cell-weight) (new-value row col grid)
+  (let ((index (+ (* row grid-cols) col)))
+    (unless (= new-value (aref (weights grid) index))
+      (setf (aref (weights grid) index) new-value)
+      (do-neighbors (nrow ncol row col :radius cell-weight-radius)
+        (setf (cell-weight nrow ncol grid)
+              (compute-cell-weight nrow ncol grid)))))
+  new-value)
+
+(defsubst cell-local-weight (cell)
+  (ecase cell
+    ((#.cell-edge #.cell-claimed) 0.0)
+    ((#.cell-unclaimed #.cell-fill) 0.3)
+    ((#.cell-claiming) 1.0)))
+
+(defun compute-distance-weights (radius)
+  (let* ((rows (1+ (* 2 radius)))
+         (cols (1+ (* 2 radius)))
+         (row radius)
+         (col radius)
+         (weights (make-array (list rows cols) :element-type 'single-float)))
+    (dotimes (nrow rows)
+      (dotimes (ncol cols)
+        (setf (aref weights nrow ncol)
+              (/ 1.0 (+ (square (- ncol col))
+                        (square (- nrow row))
+                        0.1)))))
+    weights))
+
+(defsubst cell-neighbors-weight (row col grid)
+  (declare (optimize (speed 3)))
+  (declare (type small-integer row col))
+  (let ((sum 0.0)
+        (total-weights 0.0))
+    (declare (type single-float sum total-weights))
+    (do-neighbor-cells (nrow ncol ncell row col grid :radius cell-weight-radius)
+      (let ((w (aref (the (simple-array single-float (* *))
+                       (load-time-value (compute-distance-weights cell-weight-radius)))
+                     (+ (- nrow row) cell-weight-radius)
+                     (+ (- ncol col) cell-weight-radius))))
+        (declare (type single-float w))
+        (incf sum (* (the single-float (cell-local-weight ncell)) w))
+        (incf total-weights w)))
+    (/ sum total-weights)))
+
+(defsubst compute-cell-weight (row col grid)
+  (let ((local-weight (cell-local-weight (cell-ref row col grid))))
+    (if (= 0.0 local-weight)
+        0.0
+        (* local-weight (cell-neighbors-weight row col grid)))))
+
+(defsubst cell-center-position (row col)
   (vec (+ grid-x-offset (* col cell-width) (floor cell-width 2))
        (+ grid-y-offset (* row cell-height) (floor cell-height 2))))
 
-(defun cell-row/col (pos)
+(defsubst cell-row/col (pos)
   (values (floor (- (y pos) grid-y-offset) cell-height)
           (floor (- (x pos) grid-x-offset) cell-width)))
 
-(defun valid-cell-p (row col)
+(defsubst valid-cell-p (row col)
   (and (>= row 0) (< row grid-rows)
        (>= col 0) (< col grid-cols)))
+
+(defmethod update ((grid grid))
+  (cond ((member #\w *keys*)
+         (setf *render-cell-weights* t))
+        ((member #\W *keys*)
+         (setf *render-cell-weights* nil))))
 
 (defmethod render ((grid grid))
   (loop for i from 0
@@ -72,11 +206,14 @@
         do (multiple-value-bind (row col)
                (floor i grid-rows)
              (multiple-value-bind (r g b a)
-                 (case cell
-                   (#.cell-unclaimed (values 0.0 0.0 0.0 0.0))
-                   (#.cell-claimed   (values 0.0 1.0 0.0 0.5))
-                   (#.cell-claiming  (values 1.0 0.0 0.0 0.5))
-                   (#.cell-edge      (values 0.0 1.0 0.0 1.0)))
+                 (if *render-cell-weights*
+                     (let ((w (cell-weight row col grid)))
+                       (values w w w 1.0))
+                     (ecase cell
+                       (#.cell-unclaimed (values 0.0 0.0 0.0 0.0))
+                       (#.cell-claimed   (values 0.0 1.0 0.0 0.5))
+                       (#.cell-claiming  (values 1.0 0.0 0.0 0.5))
+                       (#.cell-edge      (values 0.0 1.0 0.0 1.0))))
                (gl:color r g b a)
                (gl:with-primitive :quads
                  (let ((sx (+ grid-x-offset (* col cell-width) 0.1))
@@ -88,28 +225,6 @@
                    (gl:vertex ex ey)
                    (gl:vertex sx ey)))))))
 
-(defun map-neighbors (function row col grid)
-  (loop for nrow from (1- row) to (1+ row)
-        do (loop for ncol from (1- col) to (1+ col)
-                 when (and (valid-cell-p nrow ncol)
-                           (or (/= nrow row)
-                               (/= ncol col)))
-                 do (funcall function nrow ncol
-                             (cell-ref nrow ncol grid)))))
-
-(defmacro do-neighbors ((nrow-var ncol-var ncell-var row col grid) &body forms)
-  `(block nil
-     (map-neighbors (lambda (,nrow-var ,ncol-var ,ncell-var)
-                      (declare (ignorable ,nrow-var ,ncol-var ,ncell-var))
-                      ,@forms)
-                    ,row ,col ,grid)))
-
-(defmacro do-neighbors-case ((nrow-var ncol-var row col grid) &body cases)
-  (let ((ncell (gensym)))
-    `(do-neighbors (,nrow-var ,ncol-var ,ncell ,row ,col ,grid)
-       (case ,ncell
-         ,@cases))))
-
 (defun claim-cells (grid)
   (let ((unclaimed-neighbors '()))
     (dotimes (row grid-rows)
@@ -117,29 +232,31 @@
         (symbol-macrolet ((cell (cell-ref row col grid)))
           (when (= cell cell-claiming)
             (setf cell cell-edge)
-            (do-neighbors-case (nrow ncol row col grid)
-              (#.cell-unclaimed (push (list nrow ncol) unclaimed-neighbors)))))))
+            (do-neighbor-cells (nrow ncol ncell row col grid)
+              (when (= ncell cell-unclaimed)
+                (push (list nrow ncol) unclaimed-neighbors)))))))
     (when unclaimed-neighbors
       (claim-parts unclaimed-neighbors grid))
     (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
 
 (defun claim-parts (possibilities grid)
-  (let* ((parts (fill-claimable-parts possibilities grid))
-         (most-unclaimed (reduce #'max parts :key #'second))
-         (filled-biggest nil))
-    (dolist (part parts)
-      (destructuring-bind (location unclaimed) part
-        (flet ((ff (target)
-                 (destructuring-bind (row col) location
-                   (flood-fill grid row col cell-fill
-                               (lambda (frow fcol)
-                                 (setf (cell-ref frow fcol grid) target))))))
-          (cond ((null location))
-                ((or filled-biggest (< unclaimed most-unclaimed))
-                 (ff cell-claimed))
-                (t
-                 (ff cell-unclaimed)
-                 (setf filled-biggest t))))))))
+  (with-weight-computation (:delay grid)
+    (let* ((parts (fill-claimable-parts possibilities grid))
+           (most-unclaimed (reduce #'max parts :key #'second))
+           (filled-biggest nil))
+      (dolist (part parts)
+        (destructuring-bind (location unclaimed) part
+          (flet ((ff (target)
+                   (destructuring-bind (row col) location
+                     (flood-fill grid row col cell-fill
+                                 (lambda (frow fcol)
+                                   (setf (cell-ref frow fcol grid) target))))))
+            (cond ((null location))
+                  ((or filled-biggest (< unclaimed most-unclaimed))
+                   (ff cell-claimed))
+                  (t
+                   (ff cell-unclaimed)
+                   (setf filled-biggest t)))))))))
 
 (defun fill-claimable-parts (possibilities grid)
   (let ((parts (list (list nil 0))))
@@ -177,18 +294,6 @@
                       (push (list (1- row) fill-col) locations))
                     (when (interesting-p (1+ row) fill-col)
                       (push (list (1+ row) fill-col) locations))))))))))
-
-(defun cell-weight (row col grid)
-  (case (cell-ref row col grid)
-    ((#.cell-edge #.cell-claimed) 0)
-    (#.cell-unclaimed
-     (let ((edge 0)
-           (claiming 0))
-       (do-neighbors-case (nrow ncol row col grid)
-         (#.cell-edge (incf edge))
-         (#.cell-claiming (incf claiming)))
-       (+ 8 (- edge) claiming)))
-    (#.cell-claiming 16)))
 
 
 ;;;; Halo
@@ -270,7 +375,7 @@
                           (:key-down (list (1- row) col))))
                       *keys*)))
 
-(defun movement-possible-p (row col player)
+(defsubst movement-possible-p (row col player)
   (and (valid-cell-p row col)
        (or (= cell-edge (cell-ref row col (grid player)))
            (and (member #\Space *keys*)
@@ -291,7 +396,6 @@
 
 ;;;; Enemy
 
-(defconstant enemy-inertia 7)
 (defconstant enemy-death-ticks 64)
 
 (defclass enemy ()
@@ -318,65 +422,51 @@
     (enemy-forward enemy)
     (enemy-check-claiming enemy)))
 
-(defun need-new-target-p (row col enemy)
+(defsubst need-new-target-p (row col enemy)
   (or (and (null (target-row enemy))
            (null (target-col enemy)))
       (and (= row (target-row enemy))
            (= col (target-col enemy)))))
 
 (defun choose-target-cell (row col enemy)
-  (if (= 0 (random enemy-inertia))
-      (choose-target-cell-by-weight row col enemy)
-      (choose-target-cell-by-direction row col enemy)))
-
-(defun choose-target-cell-by-weight (row col enemy)
-  (let* ((neighbors (collect-potential-target-cells row col (grid enemy)))
+  (let* ((neighbors (collect-potential-target-cells row col enemy))
          (weights-sum (reduce #'+ neighbors :key #'first))
          (choice (random weights-sum)))
     (loop for (weight nrow ncol) in neighbors
           summing weight into sum
-          when (>= sum choice)
+          when (> sum choice)
           return (values nrow ncol))))
 
-(defun angle- (angle-1 angle-2)
+(defsubst angle- (angle-1 angle-2)
   (let ((d1 (normalize-deg (- angle-1 angle-2)))
         (d2 (normalize-deg (- angle-2 angle-1))))
     (if (< d1 d2)
         (values d1 '+)
         (values d2 '-))))
 
-(defun head-angle (enemy)
+(defsubst head-angle (enemy)
   (first (enemy-structure enemy)))
 
-(defun (setf head-angle) (new-value enemy)
+(defsubst (setf head-angle) (new-value enemy)
   (setf (first (enemy-structure enemy)) new-value))
-
-(defun choose-target-cell-by-direction (row col enemy)
-  (let ((best-row nil)
-        (best-col nil)
-        (best-angle nil)
-        (source-angle (head-angle enemy)))
-    (do-neighbors-case (nrow ncol row col (grid enemy))
-      ((#.cell-unclaimed #.cell-claiming)
-       (let* ((neighbor-position (cell-center-position nrow ncol))
-              (angle (compute-target-angle (pos enemy) neighbor-position)))
-         (when (or (null best-angle)
-                   (< (angle- source-angle angle)
-                      (angle- source-angle best-angle)))
-           (setf best-row nrow)
-           (setf best-col ncol)
-           (setf best-angle angle)))))
-    (values best-row best-col)))
                             
-(defun compute-target-angle (source-position target-position)
+(defsubst angle-between-positions (source-position target-position)
   (if (vec=~ source-position target-position)
       0.0
       (normalize-deg (vec-angle (vec- source-position target-position)))))
 
+(defsubst angle-between-position-and-cell (source-position target-row target-col)
+  (angle-between-positions source-position
+                           (cell-center-position target-row target-col)))
+
+(defsubst enemy-target-angle (enemy)
+  (angle-between-position-and-cell (pos enemy)
+                                   (target-row enemy)
+                                   (target-col enemy)))
+
 (defun enemy-fix-direction (enemy)
-  (let* ((target-position (cell-center-position (target-row enemy) (target-col enemy)))
-         (target-angle (compute-target-angle (pos enemy) target-position))
-         (head-angle (head-angle enemy)))
+  (let ((target-angle (enemy-target-angle enemy))
+        (head-angle (head-angle enemy)))
     (multiple-value-bind (difference op)
         (angle- target-angle head-angle)
       (let ((new-angle (funcall op head-angle (/ difference 10.0))))
@@ -387,15 +477,26 @@
                       (setf head-angle (+ x new-angle))))
                   (rest (enemy-structure enemy)))))))
 
-(defun enemy-forward (enemy)
+(defsubst enemy-forward (enemy)
   (vec+= (pos enemy) (vel-vec 0.2 (head-angle enemy))))
 
-(defun collect-potential-target-cells (row col grid)
-  (let ((result '()))
-    (do-neighbors (nrow ncol cell row col grid)
+(defsubst angle-multiplier (source-angle target-angle)
+  (let ((difference (angle- source-angle target-angle)))
+    (cond ((< difference 30.0) 1.0)
+          ((< difference 60.0) 0.1)
+          (t 0.05))))
+
+(defun collect-potential-target-cells (row col enemy)
+  (let ((result '())
+        (source-angle (head-angle enemy))
+        (pos (pos enemy))
+        (grid (grid enemy)))
+    (do-neighbors (nrow ncol row col)
       (let ((weight (cell-weight nrow ncol grid)))
         (when (plusp weight)
-          (push (list weight nrow ncol) result))))
+          (let* ((target-angle (angle-between-position-and-cell pos nrow ncol))
+                 (m (angle-multiplier source-angle target-angle)))
+            (push (list (* weight m) nrow ncol) result)))))
     result))
 
 (defmethod render ((enemy enemy))
@@ -408,7 +509,7 @@
       (gl:color 1.0 1.0 0.0 alpha))
     (render-structure (enemy-structure enemy))))
 
-(defun enemy-alpha-and-scale (enemy)
+(defsubst enemy-alpha-and-scale (enemy)
   (if (null (death-tick enemy))
       (values 1.0 1.0)
       (let ((ratio (float (/ (death-tick enemy) enemy-death-ticks))))
@@ -505,7 +606,7 @@
   (:default-initargs
    :title "CONSIX"))
 
-(define-level (consix :test-order '(player t))
+(define-level (consix :test-order '(player enemy t))
   (grid :named grid)
   (player :row (1- grid-rows) :col (floor grid-cols 2) :grid grid)
   (enemy :pos (vec 0 0) :structure (list 0.0 0.0 0.0) :grid grid))
