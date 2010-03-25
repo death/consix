@@ -263,7 +263,9 @@
               (push nlocation unclaimed-neighbors))))))
     (when unclaimed-neighbors
       (claim-parts unclaimed-neighbors grid))
-    (setf (current-unclaimed grid) (count cell-unclaimed (cells grid)))))
+    (let ((new-unclaimed (count cell-unclaimed (cells grid))))
+      (prog1 (- (current-unclaimed grid) new-unclaimed)
+        (setf (current-unclaimed grid) new-unclaimed)))))
 
 (defun claim-parts (possibilities grid)
   (with-weight-computation (:delay grid)
@@ -338,6 +340,7 @@
 ;;;; Player
 
 (defconstant player-movement-steps 3)
+(defconstant player-life-bonus 500000)
 
 (defclass player ()
   ((pos :accessor pos)
@@ -347,7 +350,8 @@
    (halo :initform (make-instance 'halo) :accessor halo)
    (movement-actions :initform '() :accessor movement-actions)
    (claiming :initform nil :accessor claiming-p)
-   (lives :initarg :lives :accessor lives)))
+   (lives :initarg :lives :accessor lives)
+   (score :initform 0 :accessor score)))
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
@@ -361,6 +365,8 @@
   (halo-update (halo player)))
 
 (defmethod render ((player player))
+  (gl:color 1.0 1.0 1.0)
+  (display-text -90 93 "Score: ~9,'0D" (score player))
   (flet ((draw (x y)
            (gl:with-pushed-matrix
              (gl:translate x y 0.0)
@@ -415,7 +421,7 @@
        (setf (claiming-p player) t))
       (#.cell-edge
        (when (claiming-p player)
-         (claim-cells (grid player))
+         (increment-score (* 10 (claim-cells (grid player))) player)
          (setf (claiming-p player) nil)))
       (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
 
@@ -428,6 +434,14 @@
          (setf (pos player) (cell-center-position (initial-location player)))
          (setf (movement-actions player) '()))
         (t (outer-world))))
+
+(defun increment-score (increment player)
+  (symbol-macrolet ((score (score player)))
+    (let ((new-score (+ score increment)))
+      (when (/= (floor new-score player-life-bonus)
+                (floor score player-life-bonus))
+        (incf (lives player)))
+      (setf score new-score))))
 
 
 ;;;; Enemy
@@ -448,7 +462,7 @@
            (when (= (incf (death-tick enemy)) enemy-death-ticks)
              (remove-object enemy)))
           ((= cell-claimed (cell-ref location (grid enemy)))
-           (setf (death-tick enemy) 0))
+           (enemy-die enemy))
           ((need-new-target-p location enemy)
            (setf (target-location enemy) (choose-target-cell location enemy)))))
   (when (null (death-tick enemy))
@@ -623,6 +637,11 @@
   (declare (ignore enemy))
   (do-objects (player :type 'player)
     (player-die player)))
+
+(defun enemy-die (enemy)
+  (setf (death-tick enemy) 0)
+  (do-objects (player :type 'player)
+    (increment-score (floor (score player) 10) player)))
 
 
 ;;;; Game
