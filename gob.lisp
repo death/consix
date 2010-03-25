@@ -579,6 +579,7 @@
   (setf (tick (world w)) new-value))
 
 (defmethod glut:display-window :before ((w game-window))
+  (setf *keys* '())
   (gl:clear-color 0 0 0 0)
   (gl:shade-model :flat)
   (gl:disable :depth-test)
@@ -685,7 +686,8 @@
       (incf (tick w))
       (setf (time-to-next-tick w) (+ now *tick-duration*))
       (update (world w))
-      (glut:post-redisplay))))
+      (when (/= 0 (glut:get-window))
+        (glut:post-redisplay)))))
 
 (defun display-text (x y object &rest format-args)
   (let ((string (if (stringp object)
