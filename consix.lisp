@@ -447,8 +447,9 @@
 ;;;; Enemy
 
 (defconstant enemy-death-ticks 64)
-(defconstant enemy-growth-completion-ticks 100)
+(defconstant enemy-growth-completion-ticks 64)
 (defconstant enemy-flexibility 1.5)
+(defconstant enemy-max-size 8)
 
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
@@ -653,8 +654,9 @@
     (increment-score (floor (score player) 10) player)))
 
 (defun enemy-grow (enemy)
-  (setf (growth-tick enemy) 0)
-  (appendf (enemy-structure enemy) (list (lastcar (enemy-structure enemy)))))
+  (when (< (length (enemy-structure enemy)) enemy-max-size)
+    (setf (growth-tick enemy) 0)
+    (appendf (enemy-structure enemy) (list (lastcar (enemy-structure enemy))))))
           
 (defun enemy-check-growth (enemy)
   (when (growth-tick enemy)
