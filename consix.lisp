@@ -113,11 +113,12 @@
   new-value)
 
 (defsubst map-neighbors (function location radius)
+  (declare (type array-index location))
   (let* ((left (valid-row+ (valid-col+ location (- radius)) (- radius)))
          (right (valid-row+ (valid-col+ location radius) (- radius)))
          (invalid-left (row-1+ (the fixnum (valid-row+ (valid-col+ location (- radius)) radius))))
          (nlocation left))
-    (declare (type array-index location left right nlocation))
+    (declare (type array-index left right nlocation))
     (dotimes (i (square (1+ (* 2 radius))))
       (when (/= location nlocation)
         (funcall function nlocation))
