@@ -45,6 +45,12 @@
   (setf (total-unclaimed grid) (count cell-unclaimed (cells grid)))
   (setf (current-unclaimed grid) (total-unclaimed grid)))
 
+(defsubst claimed-percentage (grid)
+  (* 100.0
+     (- 1.0
+        (/ (current-unclaimed grid)
+           (total-unclaimed grid)))))
+  
 (defsubst row-1+ (location) (+ location grid-cols))
 (defsubst row-1- (location) (- location grid-cols))
 (defsubst col-1+ (location) (+ location 1))
@@ -213,6 +219,8 @@
          (setf *render-cell-weights* nil))))
 
 (defmethod render ((grid grid))
+  (gl:color 1.0 1.0 1.0)
+  (display-text 60 93 "Claimed: ~3,1F %" (claimed-percentage grid))
   (loop for location from 0
         for cell across (cells grid)
         do (multiple-value-bind (row col)
