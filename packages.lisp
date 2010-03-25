@@ -5,6 +5,7 @@
 (defpackage #:gob
   (:use #:cl #:alexandria)
   (:export
+   #:defsubst
    #:normalize-deg
 
    #:draw-circle

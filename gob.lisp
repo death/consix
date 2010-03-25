@@ -7,23 +7,29 @@
 
 ;;;; Utilities
 
+(defmacro defsubst (name lambda-list &body forms)
+  "Define an inline function at top level."
+  `(progn
+     (declaim (inline ,name))
+     (defun ,name ,lambda-list ,@forms)))
+
 (defconstant single-pi (coerce pi 'single-float))
 
-(defun rad (deg)
+(defsubst rad (deg)
   (/ (* single-pi deg) 180.0))
 
-(defun deg (rad)
+(defsubst deg (rad)
   (/ (* 180.0 rad) single-pi))
 
-(defun normalize-deg (deg)
+(defsubst normalize-deg (deg)
   (loop while (>= deg 360.0) do (decf deg 360.0))
   (loop while (< deg 0.0) do (incf deg 360.0))
   deg)
 
-(defun sind (deg)
+(defsubst sind (deg)
   (sin (rad deg)))
 
-(defun cosd (deg)
+(defsubst cosd (deg)
   (cos (rad deg)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -68,7 +74,7 @@
      (lambda (x y) (gl:vertex (* x radius) (* y radius)))
      segments)))
 
-(defun mod+ (n m p)
+(defsubst mod+ (n m p)
   (mod (+ n m) p))
   
 (defun call-with-star-multipliers (fn points density)
@@ -134,7 +140,7 @@
                   (+ (* am ay) (* bm by) (* cm cy) (* dm dy))))
      segments)))
 
-(defun square (x)
+(defsubst square (x)
   (* x x))
 
 (defmacro define-symmetric (name ((a class1) (b class2)) &body forms)
@@ -155,90 +161,90 @@
 
 ;;;; 2D vectors
 
-(defun vec (x y) (cons x y))
+(defsubst vec (x y) (cons x y))
 
-(defun x (vec) (car vec))
+(defsubst x (vec) (car vec))
 
-(defun y (vec) (cdr vec))
+(defsubst y (vec) (cdr vec))
 
-(defun (setf x) (new-x vec)
+(defsubst (setf x) (new-x vec)
   (setf (car vec) new-x))
 
-(defun (setf y) (new-y vec)
+(defsubst (setf y) (new-y vec)
   (setf (cdr vec) new-y))
 
-(defun copy-vec (v)
+(defsubst copy-vec (v)
   (vec (x v) (y v)))
 
-(defun vec-assign (v x y)
+(defsubst vec-assign (v x y)
   (setf (x v) x)
   (setf (y v) y)
   v)
 
-(defun unit (&optional (dir 0.0))
+(defsubst unit (&optional (dir 0.0))
   (if (consp dir)
       (vec/ dir (vec-mag dir))
       (vec (- (cosd dir)) (- (sind dir)))))
 
-(defun vec-clear (vec)
+(defsubst vec-clear (vec)
   (setf (x vec) 0.0)
   (setf (y vec) 0.0)
   vec)
 
-(defun vec-mul (v1 v2)
+(defsubst vec-mul (v1 v2)
   (+ (* (x v1) (x v2))
      (* (y v1) (y v2))))
 
-(defun vec+ (v1 v2)
+(defsubst vec+ (v1 v2)
   (vec (+ (x v1) (x v2))
        (+ (y v1) (y v2))))
 
-(defun vec+= (v1 v2)
+(defsubst vec+= (v1 v2)
   (incf (x v1) (x v2))
   (incf (y v1) (y v2))
   v1)
 
-(defun vec- (v1 v2)
+(defsubst vec- (v1 v2)
   (vec (- (x v1) (x v2))
        (- (y v1) (y v2))))
 
-(defun vec-= (v1 v2)
+(defsubst vec-= (v1 v2)
   (decf (x v1) (x v2))
   (decf (y v1) (y v2))
   v1)
 
-(defun vec* (v a)
+(defsubst vec* (v a)
   (vec (* (x v) a)
        (* (y v) a)))
 
-(defun vec*= (v a)
+(defsubst vec*= (v a)
   (setf (x v) (* (x v) a))
   (setf (y v) (* (y v) a))
   v)
 
-(defun vec/ (v a)
+(defsubst vec/ (v a)
   (vec (/ (x v) a)
        (/ (y v) a)))
 
-(defun vec/= (v a)
+(defsubst vec/= (v a)
   (setf (x v) (/ (x v) a))
   (setf (y v) (/ (y v) a))
   v)
 
-(defun vec-mag (v)
+(defsubst vec-mag (v)
   (sqrt (+ (square (x v)) (square (y v)))))
 
-(defun vec-distance (v1 v2)
+(defsubst vec-distance (v1 v2)
   (sqrt (vec-distance-sq v1 v2)))
 
-(defun vec-distance-sq (v1 v2)
+(defsubst vec-distance-sq (v1 v2)
   (+ (square (- (x v1) (x v2)))
      (square (- (y v1) (y v2)))))
 
-(defun vec-contains (v1 v2 &optional (r 1.0))
+(defsubst vec-contains (v1 v2 &optional (r 1.0))
   (vec-contains-xy v1 (x v2) (y v2) r))
 
-(defun vec-contains-xy (v x y &optional (r 1.0))
+(defsubst vec-contains-xy (v x y &optional (r 1.0))
   (and (>= x (* (- (x v)) r))
        (<= x (* (x v) r))
        (>= y (* (- (y v)) r))
@@ -253,15 +259,15 @@
         (,y (cdr ,vec)))
        ,@forms)))
 
-(defun vec=~ (v1 v2 &optional (epsilon 0.1))
+(defsubst vec=~ (v1 v2 &optional (epsilon 0.1))
   (flet ((=~ (a b) (< (abs (- a b)) epsilon)))
     (and (=~ (x v1) (x v2))
          (=~ (y v1) (y v2)))))
 
-(defun vel-vec (mag dir)
+(defsubst vel-vec (mag dir)
   (vec*= (unit dir) mag))
 
-(defun vec-angle (vec)
+(defsubst vec-angle (vec)
   (deg (atan (y vec) (x vec))))
 
 
@@ -283,7 +289,7 @@
   ((collision-radius :initarg :collision-radius :accessor collision-radius)
    (pos :initarg :pos :accessor pos)))
 
-(defun close-enough-p (pa ra pb rb)
+(defsubst close-enough-p (pa ra pb rb)
   (< (vec-distance-sq pa pb) (square (+ ra rb))))
 
 (define-symmetric collide-p ((a circle-collidable-object)
@@ -309,7 +315,7 @@
           ((>= proj (vec-mag seg-v)) end-pos)
           (t (vec+= (vec* seg-v-unit proj) start-pos)))))
 
-(defun segment-collides-with-circle-p (start-pos end-pos circle-pos circle-radius)
+(defsubst segment-collides-with-circle-p (start-pos end-pos circle-pos circle-radius)
   (let ((closest (closest-point-on-segment start-pos end-pos circle-pos)))
     (<= (vec-mag (vec- circle-pos closest)) circle-radius)))
 
@@ -321,7 +327,7 @@
   ((top-left :initarg :top-left :accessor top-left)
    (bottom-right :initarg :bottom-right :accessor bottom-right)))
 
-(defun box-collides-with-point-p (top-left bottom-right pos)
+(defsubst box-collides-with-point-p (top-left bottom-right pos)
   (with-vec (x1 y1 top-left)
     (with-vec (x2 y2 bottom-right)
       (with-vec (x y pos)
