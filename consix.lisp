@@ -447,13 +447,16 @@
 ;;;; Enemy
 
 (defconstant enemy-death-ticks 64)
+(defconstant enemy-growth-completion-ticks 100)
+(defconstant enemy-flexibility 1.5)
 
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
    (grid :initarg :grid :accessor grid)
    (target-location :initform nil :accessor target-location)
    (structure :initarg :structure :accessor enemy-structure)
-   (death-tick :initform nil :accessor death-tick)))
+   (death-tick :initform nil :accessor death-tick)
+   (growth-tick :initform nil :accessor growth-tick)))
 
 (defmethod update ((enemy enemy))
   (let ((location (cell-location (pos enemy))))
@@ -468,7 +471,8 @@
   (when (null (death-tick enemy))
     (enemy-fix-direction enemy)
     (enemy-forward enemy)
-    (enemy-check-claiming enemy)))
+    (enemy-check-claiming enemy)
+    (enemy-check-growth enemy)))
 
 (defsubst need-new-target-p (location enemy)
   (or (null (target-location enemy)) (= location (target-location enemy))))
@@ -515,7 +519,7 @@
         (setf (head-angle enemy) new-angle)
         (map-into (rest (enemy-structure enemy))
                   (lambda (x)
-                    (prog1 (* 2.0 (- head-angle new-angle))
+                    (prog1 (* enemy-flexibility (- head-angle new-angle))
                       (setf head-angle (+ x new-angle))))
                   (rest (enemy-structure enemy)))))))
 
@@ -549,7 +553,7 @@
         (enemy-alpha-and-scale enemy)
       (gl:scale scale scale 1.0)
       (gl:color 1.0 1.0 0.0 alpha))
-    (render-structure (enemy-structure enemy))))
+    (render-structure (enemy-structure enemy) (growth-tick enemy))))
 
 (defsubst enemy-alpha-and-scale (enemy)
   (if (null (death-tick enemy))
@@ -558,17 +562,20 @@
         (values (- 1.0 ratio)
                 (+ 1.0 (* 3.0 ratio))))))
 
-(defun render-structure (object)
+(defun render-structure (object growth-tick)
   (typecase object
     (atom)
     (cons
      (gl:rotate (car object) 0.0 0.0 1.0)
      (render-box-pair)
      (cond ((cdr object)
+            (when (and growth-tick (consp (cdr object)) (null (cddr object)))
+              (let ((growth-scale (float (/ growth-tick enemy-growth-completion-ticks))))
+                (gl:scale growth-scale growth-scale 1.0)))
             (gl:translate 6.0 0.0 0.0)
             (render-arrow)
             (gl:translate 6.0 0.0 0.0)
-            (render-structure (cdr object)))
+            (render-structure (cdr object) growth-tick))
            (t
             (gl:translate 4.0 0.0 0.0)
             (render-box-filling))))))
@@ -603,7 +610,7 @@
     0.0d0 0.0d0 1.0d0 0.0d0
     0.0d0 0.0d0 0.0d0 1.0d0))
 
-(defun structure-positions (object)
+(defun structure-positions (object growth-tick)
   ;; Eewww, what a disgusting hack!
   (let ((positions '()))
     (flet ((add (x y)
@@ -618,14 +625,16 @@
          (add 6.0 0.0)
          (cond ((cdr object)
                 (gl:translate 12.0 0.0 0.0)
-                (nconc positions (structure-positions (cdr object))))
+                (if (and growth-tick (consp (cdr object)) (null (cddr object)))
+                    positions
+                    (nconc positions (structure-positions (cdr object) growth-tick))))
                (t positions)))))))
 
 (defun structure-positions-toplevel (enemy)
   (gl:with-pushed-matrix
     (with-vec (x y (pos enemy))
       (gl:translate x y 0.0))
-    (structure-positions (enemy-structure enemy))))
+    (structure-positions (enemy-structure enemy) (growth-tick enemy))))
 
 (defun enemy-check-claiming (enemy)
   (dolist (pos (structure-positions-toplevel enemy))
@@ -643,6 +652,31 @@
   (do-objects (player :type 'player)
     (increment-score (floor (score player) 10) player)))
 
+(defun enemy-grow (enemy)
+  (setf (growth-tick enemy) 0)
+  (appendf (enemy-structure enemy) (list (lastcar (enemy-structure enemy)))))
+          
+(defun enemy-check-growth (enemy)
+  (when (growth-tick enemy)
+    (setf (growth-tick enemy)
+          (if (= enemy-growth-completion-ticks (growth-tick enemy))
+              nil
+              (1+ (growth-tick enemy))))))
+
+
+;;;; Level timer
+
+(defconstant enemy-growth-ticks 1000)
+
+(defclass level-timer ()
+  ())
+
+(defmethod update ((timer level-timer))
+  (when (and (plusp *tick*)
+             (zerop (mod *tick* enemy-growth-ticks)))
+    (do-objects (enemy :type 'enemy)
+      (enemy-grow enemy))))
+
 
 ;;;; Game
 
@@ -653,8 +687,10 @@
 
 (define-level (consix :test-order '(player enemy t))
   (grid :named grid)
+  (level-timer)
   (player :lives 3 :loc (location (1- grid-rows) (floor grid-cols 2)) :grid grid)
-  (enemy :pos (vec 0 0) :structure (list 0.0 0.0 0.0) :grid grid))
+  (enemy :pos (vec -10 0) :structure (list 0.0) :grid grid)
+  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid))
 
 (defun game ()
   (glut:display-window
