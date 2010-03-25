@@ -225,6 +225,14 @@
                    (gl:vertex ex ey)
                    (gl:vertex sx ey)))))))
 
+(defun disclaim-cells (grid)
+  (with-weight-computation (:delay grid)
+    (dotimes (row grid-rows)
+      (dotimes (col grid-cols)
+        (symbol-macrolet ((cell (cell-ref row col grid)))
+          (when (= cell-claiming cell)
+            (setf cell cell-unclaimed)))))))
+
 (defun claim-cells (grid)
   (let ((unclaimed-neighbors '()))
     (dotimes (row grid-rows)
@@ -315,12 +323,15 @@
 
 (defclass player ()
   ((pos :accessor pos)
+   (initial-row :initarg :row :accessor initial-row)
+   (initial-col :initarg :col :accessor initial-col)
    (row :initarg :row :accessor row)
    (col :initarg :col :accessor col)
    (grid :initarg :grid :accessor grid)
    (halo :initform (make-instance 'halo) :accessor halo)
    (movement-actions :initform '() :accessor movement-actions)
-   (claiming :initform nil :accessor claiming-p)))
+   (claiming :initform nil :accessor claiming-p)
+   (lives :initarg :lives :accessor lives)))
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
@@ -336,14 +347,18 @@
   (halo-update (halo player)))
 
 (defmethod render ((player player))
-  (gl:with-pushed-matrix
+  (flet ((draw (x y)
+           (gl:with-pushed-matrix
+             (gl:translate x y 0.0)
+             (dotimes (i 5)
+               (gl:color 0.0 0.0 1.0 (* i 0.2))
+               (draw-circle (- 5 i) 30 t))
+             (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
+             (draw-circle 5))))
     (with-vec (x y (pos player))
-      (gl:translate x y 0.0)
-      (dotimes (i 5)
-        (gl:color 0.0 0.0 1.0 (* i 0.2))
-        (draw-circle (- 5 i) 30 t))
-      (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
-      (draw-circle 5))))
+      (draw x y))
+    (dotimes (i (lives player))
+      (draw -95.0 (- 85.0 (* i 10.0))))))
 
 (defun maybe-queue-movement-actions (player)
   (flet ((goto (row col)
@@ -392,6 +407,17 @@
          (claim-cells (grid player))
          (setf (claiming-p player) nil)))
       (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
+
+(defun player-die (player)
+  (cond ((plusp (lives player))
+         (decf (lives player))
+         (disclaim-cells (grid player))
+         (setf (claiming-p player) nil)
+         (setf (row player) (initial-row player))
+         (setf (col player) (initial-col player))
+         (setf (pos player) (cell-center-position (row player) (col player)))
+         (setf (movement-actions player) '()))
+        (t (outer-world))))
 
 
 ;;;; Enemy
@@ -596,7 +622,7 @@
 (defun enemy-kill-player (enemy)
   (declare (ignore enemy))
   (do-objects (player :type 'player)
-    (remove-object player)))
+    (player-die player)))
 
 
 ;;;; Game
@@ -608,7 +634,7 @@
 
 (define-level (consix :test-order '(player enemy t))
   (grid :named grid)
-  (player :row (1- grid-rows) :col (floor grid-cols 2) :grid grid)
+  (player :lives 3 :row (1- grid-rows) :col (floor grid-cols 2) :grid grid)
   (enemy :pos (vec 0 0) :structure (list 0.0 0.0 0.0) :grid grid))
 
 (defun game ()
