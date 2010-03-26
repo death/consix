@@ -451,7 +451,6 @@
 (defconstant* enemy-death-ticks 64)
 (defconstant* enemy-growth-completion-ticks 64)
 (defconstant* enemy-flexibility 1.5)
-(defconstant* enemy-max-size 8)
 
 (defclass enemy ()
   ((pos :initarg :pos :accessor pos)
@@ -459,7 +458,9 @@
    (target-location :initform nil :accessor target-location)
    (structure :initarg :structure :accessor enemy-structure)
    (death-tick :initform nil :accessor death-tick)
-   (growth-tick :initform nil :accessor growth-tick)))
+   (growth-tick :initform nil :accessor growth-tick)
+   (growth-rate :initarg :growth-rate :accessor growth-rate)
+   (max-size :initarg :max-size :accessor max-size)))
 
 (defmethod update ((enemy enemy))
   (let ((location (cell-location (pos enemy))))
@@ -656,30 +657,20 @@
     (increment-score (floor (score player) 10) player)))
 
 (defun enemy-grow (enemy)
-  (when (< (length (enemy-structure enemy)) enemy-max-size)
+  (when (< (length (enemy-structure enemy)) (max-size enemy))
     (setf (growth-tick enemy) 0)
     (appendf (enemy-structure enemy) (list (lastcar (enemy-structure enemy))))))
           
 (defun enemy-check-growth (enemy)
+  (when (and (null (growth-tick enemy))
+             (plusp *tick*)
+             (zerop (mod *tick* (growth-rate enemy))))
+    (enemy-grow enemy))
   (when (growth-tick enemy)
     (setf (growth-tick enemy)
           (if (= enemy-growth-completion-ticks (growth-tick enemy))
               nil
               (1+ (growth-tick enemy))))))
-
-
-;;;; Level timer
-
-(defconstant* enemy-growth-ticks 1000)
-
-(defclass level-timer ()
-  ())
-
-(defmethod update ((timer level-timer))
-  (when (and (plusp *tick*)
-             (zerop (mod *tick* enemy-growth-ticks)))
-    (do-objects (enemy :type 'enemy)
-      (enemy-grow enemy))))
 
 
 ;;;; Game
@@ -691,10 +682,9 @@
 
 (define-level (consix :test-order '(player enemy t))
   (grid :named grid)
-  (level-timer)
   (player :lives 3 :loc (location (1- grid-rows) (floor grid-cols 2)) :grid grid)
-  (enemy :pos (vec -10 0) :structure (list 0.0) :grid grid)
-  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid))
+  (enemy :pos (vec -10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8)
+  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8))
 
 (defun game ()
   (glut:display-window
