@@ -342,6 +342,7 @@
 
 (defconstant* player-movement-steps 3)
 (defconstant* player-life-bonus 500000)
+(defconstant* player-death-ticks 64)
 
 (defclass player ()
   ((pos :accessor pos)
@@ -352,33 +353,40 @@
    (movement-actions :initform '() :accessor movement-actions)
    (claiming :initform nil :accessor claiming-p)
    (lives :initarg :lives :accessor lives)
-   (score :initform 0 :accessor score)))
+   (score :initform 0 :accessor score)
+   (death-tick :initform nil :accessor death-tick)))
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
   (setf (pos player) (cell-center-position (initial-location player))))
 
 (defmethod update ((player player))
-  (when (null (movement-actions player))
-    (maybe-queue-movement-actions player))
-  (when-let (action (pop (movement-actions player)))
-    (funcall action))
-  (halo-update (halo player)))
+  (cond ((death-tick player)
+         (when (= (incf (death-tick player)) player-death-ticks)
+           (player-die player)))
+        (t
+         (when (null (movement-actions player))
+           (maybe-queue-movement-actions player))
+         (when-let (action (pop (movement-actions player)))
+           (funcall action))
+         (halo-update (halo player)))))
 
 (defmethod render ((player player))
   (gl:color 1.0 1.0 1.0)
   (display-text -90 93 "Score: ~9,'0D" (score player))
-  (flet ((draw (x y &optional draw-halo)
+  (flet ((draw (x y &optional draw-halo (alpha-multiplier 1.0))
            (gl:with-pushed-matrix
              (gl:translate x y 0.0)
              (dotimes (i 5)
-               (gl:color 0.0 0.0 1.0 (* i 0.2))
+               (gl:color 0.0 0.0 1.0 (* alpha-multiplier i 0.2))
                (draw-circle (- 5 i) 30 t))
              (when draw-halo
                (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
                (draw-circle 5)))))
     (with-vec (x y (pos player))
-      (draw x y (not (claiming-p player))))
+      (draw x y (not (claiming-p player))
+            (- 1.0 (/ (or (death-tick player) 0.0)
+                      player-death-ticks))))
     (dotimes (i (lives player))
       (draw -95.0 (- 85.0 (* i 10.0))))))
 
@@ -434,7 +442,8 @@
          (setf (claiming-p player) nil)
          (setf (loc player) (initial-location player))
          (setf (pos player) (cell-center-position (initial-location player)))
-         (setf (movement-actions player) '()))
+         (setf (movement-actions player) '())
+         (setf (death-tick player) nil))
         (t (outer-world))))
 
 (defun increment-score (increment player)
@@ -649,7 +658,8 @@
 (defun enemy-kill-player (enemy)
   (declare (ignore enemy))
   (do-objects (player :type 'player)
-    (player-die player)))
+    (when (null (death-tick player))
+      (setf (death-tick player) 0))))
 
 (defun enemy-die (enemy)
   (setf (death-tick enemy) 0)
