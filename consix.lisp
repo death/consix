@@ -265,7 +265,8 @@
                        (#.cell-unclaimed (values 0.0 0.0 0.0 0.0))
                        (#.cell-claimed   (values 0.0 1.0 0.0 0.5))
                        (#.cell-claiming  (values 1.0 0.0 0.0 0.5))
-                       (#.cell-edge      (values 0.0 1.0 0.0 1.0))))
+                       (#.cell-edge      (values 0.0 1.0 0.0 1.0))
+                       (#.cell-fill      (values 0.6 0.6 0.9 1.0))))
                (gl:color r g b a)
                (gl:with-primitive :quads
                  (let ((sx (+ grid-x-offset (* col cell-width) 0.1))
@@ -844,7 +845,7 @@
         do (loop for bit across bits
                  for col from (floor (- grid-cols (length bits)) 2)
                  when (= 1 bit)
-                 do (setf (cell-ref (location row col) grid) cell-claimed))))
+                 do (setf (cell-ref (location row col) grid) cell-fill))))
 
 
 ;;;; Game
