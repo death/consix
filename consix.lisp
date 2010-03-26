@@ -368,16 +368,17 @@
 (defmethod render ((player player))
   (gl:color 1.0 1.0 1.0)
   (display-text -90 93 "Score: ~9,'0D" (score player))
-  (flet ((draw (x y)
+  (flet ((draw (x y &optional draw-halo)
            (gl:with-pushed-matrix
              (gl:translate x y 0.0)
              (dotimes (i 5)
                (gl:color 0.0 0.0 1.0 (* i 0.2))
                (draw-circle (- 5 i) 30 t))
-             (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
-             (draw-circle 5))))
+             (when draw-halo
+               (gl:color 0.0 0.0 1.0 (halo-value (halo player)))
+               (draw-circle 5)))))
     (with-vec (x y (pos player))
-      (draw x y))
+      (draw x y (not (claiming-p player))))
     (dotimes (i (lives player))
       (draw -95.0 (- 85.0 (* i 10.0))))))
 
