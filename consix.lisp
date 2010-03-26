@@ -725,6 +725,129 @@
               (1+ (growth-tick enemy))))))
 
 
+;;;; Scoreboard
+
+(defconstant* scores-top-n 10)
+(defconstant* score-display-completion-ticks 128)
+
+(defparameter *scores-filename*
+  (make-pathname :name "score" :type "data" :defaults *load-truename*))
+
+(defstruct score-entry
+  title
+  score)
+
+(defun read-scores ()
+  (with-open-file (in *scores-filename* :direction :input :if-does-not-exist nil)
+    (when in
+      (with-standard-io-syntax
+        (ignore-errors (read in))))))
+
+(defun write-scores (scores)
+  (check-type scores list)
+  (with-open-file (out *scores-filename* :direction :output :if-exists :supersede)
+    (with-standard-io-syntax
+      (write scores :stream out :readably t :escape t)))
+  (values))
+
+(defun add-score-entry (score-entry scores)
+  (if (plusp (score-entry-score score-entry))
+      (loop repeat scores-top-n
+            for score in (merge 'list (list score-entry) scores
+                                #'> :key #'score-entry-score)
+            collect score)
+      scores))
+
+(defun score-top-n-p (score scores)
+  (or (< (length scores) scores-top-n)
+      (some (lambda (other-entry)
+              (< (score-entry-score other-entry) score))
+            scores)))
+
+(defclass score-display ()
+  ((stats :initarg :player-stats :accessor stats)
+   (title :initarg :player-title :accessor title)
+   (grid :initarg :grid :accessor grid)
+   (start-tick :initform nil :accessor start-tick)
+   (alpha :initform (make-score-alphas) :accessor alphas)
+   (entry :accessor entry)
+   (scores :accessor scores)))
+
+(defun make-score-alphas ()
+  (make-array scores-top-n :element-type 'single-float :initial-element 0.0))
+
+(defun set-score-alphas (delta alphas)
+  (let ((m (float (/ delta score-display-completion-ticks))))
+    (dotimes (i scores-top-n)
+      (setf (aref alphas i)
+            (max 0.0 (min 1.0 (* (- scores-top-n i) m))))))
+  alphas)
+
+(defmethod update ((display score-display))
+  (when (not (slot-boundp display 'entry))
+    (consix-logo (grid display))
+    (setf (entry display)
+          (make-score-entry :title (title display)
+                            :score (score (stats display)))))
+  (when (and (not (slot-boundp display 'scores))
+             (> *tick* level-effect-ticks))
+    (write-scores
+     (setf (scores display)
+           (add-score-entry (entry display) (read-scores))))
+    (setf (start-tick display) *tick*))
+  (when (start-tick display)
+    (let ((delta (- *tick* (start-tick display))))
+      (set-score-alphas delta (alphas display))
+      (when (> delta score-display-completion-ticks)
+        (setf (start-tick display) nil)))))
+
+(defmethod render ((display score-display))
+  (when (slot-boundp display 'scores)
+    (loop for y = 40.0 then (- y 8.0)
+          for entry in (scores display)
+          for i from 0
+          for a = (aref (alphas display) i)
+          do
+          (gl:color 0.8 0.8 0.8 a)
+          (gl:with-primitive :line-loop
+            (gl:vertex -60.0 y)
+            (gl:vertex +60.0 y)
+            (gl:vertex +60 (- y 8.0))
+            (gl:vertex -60.0 (- y 8.0)))
+          (if (eq entry (entry display))
+              (gl:color 0.8 0.5 0.2 a)
+              (gl:color 0.6 0.6 0.6 a))
+          (display-text -55.0 (- y 5.0) "~A" (score-entry-title entry))
+          (display-text +40.0 (- y 5.0) "~9,'0D" (score-entry-score entry)))
+    (when (not (start-tick display))
+      (gl:color 0.7 0.7 0.7)
+      (display-text -55.0 -60.0 "CONSIX, a 2010 Lisp Game Design Challenge entry by adeht")
+      (display-text -54.0 -64.0 "No conses were hurt during the development of this game"))))
+
+(define-level (scoreboard :test-order '(score-display enemy grid t))
+  (level-in)
+  (grid :named grid)
+  (score-display :grid grid :player-title (initarg :player-title) :player-stats (initarg :player-stats))
+  (enemy :pos (vec 0 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8)
+  (enemy :pos (vec 0 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8))
+
+(defun consix-logo (grid)
+  (loop for bits in '(#*00111100011110010000100111001110100001
+                      #*01000010100001010000101000100100100001
+                      #*01000010100001011000101000000100010010
+                      #*01000000100001010100101000000100010010
+                      #*01000000100001010010100111000100001100
+                      #*01000000100001010001100000100100010010
+                      #*01000010100001010000100000100100010010
+                      #*01000010100001010000101000100100100001
+                      #*00111100011110010000100111001110100001)
+        for row downfrom 80
+        do (loop for bit across bits
+                 for col from (floor (- grid-cols (length bits)) 2)
+                 when (= 1 bit)
+                 do (setf (cell-ref (location row col) grid) cell-claimed))))
+
+
 ;;;; Game
 
 (defclass consix-window (game-window)
@@ -774,10 +897,22 @@
     (or (>= (claimed-percentage grid) 90.0)
         (not enemies))))
 
-(defun game ()
-  (let ((player-stats (make-instance 'player-stats)))
-    (glut:display-window
-     (make-instance 'consix-window
-                    :world (mapcar (lambda (level)
-                                     (make-instance level :player-stats player-stats))
-                                   '(level-1 level-2 level-3 level-4))))))
+(defun consix-worlds (levels player-title)
+  (let* ((player-stats (make-instance 'player-stats))
+         (worlds (mapcar (lambda (level) (make-instance level :player-stats player-stats)) levels))
+         (scoreboard (make-instance 'scoreboard :player-title player-title :player-stats player-stats))
+         (last-world nil))
+    (lambda (relation)
+      (setf last-world
+            (ecase relation
+              (:next (or (pop worlds) scoreboard))
+              (:outer (if (eq last-world scoreboard)
+                          nil
+                          scoreboard)))))))
+
+(defun game (&optional (player-title "Me!"))
+  (glut:display-window
+   (make-instance 'consix-window
+                  :world-generator
+                  (consix-worlds '(level-1 level-2 level-3 level-4)
+                                 player-title))))
