@@ -915,3 +915,18 @@
                   :world-generator
                   (consix-worlds '(level-1 level-2 level-3 level-4)
                                  player-title))))
+
+#+sbcl
+(defun save-executable ()
+  (sb-ext:save-lisp-and-die
+   "consix.exe"
+   :executable t
+   :toplevel (lambda ()
+               (cffi:load-foreign-library "freeglut.dll")
+               (setf glut::*glut-initialized-p* nil)
+               (glut:init)
+               (setf *scores-filename*
+                     (make-pathname :name "scores" :type "data"
+                                    :defaults (sb-unix:posix-getcwd/)))
+               (apply #'consix:game (rest sb-ext:*posix-argv*))
+               (sb-ext:quit))))
