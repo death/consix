@@ -806,13 +806,12 @@
     (loop for y = 40.0 then (- y 8.0)
           for entry in (scores display)
           for i from 0
-          for a = (aref (alphas display) i)
-          do
+          for a = (aref (alphas display) i) do
           (gl:color 0.8 0.8 0.8 a)
           (gl:with-primitive :line-loop
             (gl:vertex -60.0 y)
             (gl:vertex +60.0 y)
-            (gl:vertex +60 (- y 8.0))
+            (gl:vertex +60.0 (- y 8.0))
             (gl:vertex -60.0 (- y 8.0)))
           (if (eq entry (entry display))
               (gl:color 0.8 0.5 0.2 a)
