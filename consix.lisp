@@ -5,6 +5,39 @@
 (in-package #:consix)
 
 
+;;;; Level intro/outro
+
+(defconstant level-effect-ticks 64)
+
+(defclass level-effect ()
+  ((tick :initform 0 :accessor tick)
+   (action :initarg :action :accessor action)
+   (transform :initarg :transform :accessor transform)))
+
+(defclass level-in (level-effect)
+  ()
+  (:default-initargs :action #'do-nothing :transform #'identity))
+
+(defclass level-out (level-effect)
+  ()
+  (:default-initargs :transform (lambda (x) (- 1.0 x))))
+
+(defmethod update ((effect level-effect))
+  (when (= (incf (tick effect)) level-effect-ticks)
+    (remove-object effect)
+    (funcall (action effect))))
+
+(defmethod render ((effect level-effect))
+  (let* ((x (funcall (transform effect) (/ (tick effect) level-effect-ticks)))
+         (a (* 360.0 x))
+         (s (float x)))
+    (gl:rotate a 0.0 0.0 1.0)
+    (gl:scale s s 1.0)))
+
+(defun do-nothing (&rest whatever)
+  (declare (ignore whatever)))
+
+
 ;;;; Grid
 
 (defconstant* cell-unclaimed #x00)
@@ -341,8 +374,13 @@
 ;;;; Player
 
 (defconstant* player-movement-steps 3)
-(defconstant* player-life-bonus 500000)
+(defconstant* player-life-bonus 150000)
 (defconstant* player-death-ticks 64)
+
+(defclass player-stats ()
+  ((lives :initarg :lives :accessor lives)
+   (score :initarg :score :accessor score))
+  (:default-initargs :lives 3 :score 0))
 
 (defclass player ()
   ((pos :accessor pos)
@@ -352,9 +390,11 @@
    (halo :initform (make-instance 'halo) :accessor halo)
    (movement-actions :initform '() :accessor movement-actions)
    (claiming :initform nil :accessor claiming-p)
-   (lives :initarg :lives :accessor lives)
-   (score :initform 0 :accessor score)
-   (death-tick :initform nil :accessor death-tick)))
+   (stats :initarg :stats :accessor stats)
+   (death-tick :initform nil :accessor death-tick))
+  (:default-initargs :loc (location (1- grid-rows) (floor grid-cols 2))))
+
+(define-delegating-accessors player stats lives score)
 
 (defmethod initialize-instance :after ((player player) &rest initargs)
   (declare (ignore initargs))
@@ -432,6 +472,7 @@
       (#.cell-edge
        (when (claiming-p player)
          (increment-score (* 10 (claim-cells (grid player))) player)
+         (maybe-next-level)
          (setf (claiming-p player) nil)))
       (t (warn "Player changed to a cell it shouldn't have changed to (~D)." cell)))))
 
@@ -444,7 +485,8 @@
          (setf (pos player) (cell-center-position (initial-location player)))
          (setf (movement-actions player) '())
          (setf (death-tick player) nil))
-        (t (outer-world))))
+        (t (remove-object player)
+           (add-object (make-instance 'level-out :action #'outer-world)))))
 
 (defun increment-score (increment player)
   (symbol-macrolet ((score (score player)))
@@ -476,7 +518,8 @@
     (assert (not (null location)))
     (cond ((death-tick enemy)
            (when (= (incf (death-tick enemy)) enemy-death-ticks)
-             (remove-object enemy)))
+             (remove-object enemy)
+             (maybe-next-level)))
           ((= cell-claimed (cell-ref location (grid enemy)))
            (enemy-die enemy))
           (t
@@ -690,12 +733,52 @@
   (:default-initargs
    :title "CONSIX"))
 
-(define-level (consix :test-order '(player enemy t))
-  (grid :named grid)
-  (player :lives 3 :loc (location (1- grid-rows) (floor grid-cols 2)) :grid grid)
-  (enemy :pos (vec -10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8)
-  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 8))
+(defmacro define-consix-level (name &body objects)
+  `(define-level (,name :test-order '(player enemy grid t))
+     (level-in)
+     (grid :named grid)
+     (player :stats (initarg :player-stats) :grid grid)
+     ,@objects))
+
+(define-consix-level level-1
+  (enemy :pos (vec 0 0) :structure (list 0.0) :grid grid :growth-rate 1500 :max-size 4))
+
+(define-consix-level level-2
+  (enemy :pos (vec -10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 6)
+  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid :growth-rate 1000 :max-size 6))
+
+(define-consix-level level-3
+  (enemy :pos (vec -30 0) :structure (list 270.0 270.0) :grid grid :growth-rate 1200 :max-size 8)
+  (enemy :pos (vec -10 0) :structure (list 270.0) :grid grid :growth-rate 800 :max-size 6)
+  (enemy :pos (vec +10 0) :structure (list 270.0) :grid grid :growth-rate 800 :max-size 6)
+  (enemy :pos (vec +30 0) :structure (list 270.0 270.0) :grid grid :growth-rate 1200 :max-size 8))
+
+(define-consix-level level-4
+  (enemy :pos (vec -50 0) :structure (list 0.0) :grid grid :growth-rate 600 :max-size 8)
+  (enemy :pos (vec -30 0) :structure (list 270.0) :grid grid :growth-rate 700 :max-size 8)
+  (enemy :pos (vec -10 0) :structure (list 180.0) :grid grid :growth-rate 800 :max-size 8)
+  (enemy :pos (vec +10 0) :structure (list 0.0) :grid grid :growth-rate 800 :max-size 8)
+  (enemy :pos (vec +30 0) :structure (list 90.0) :grid grid :growth-rate 700 :max-size 8)
+  (enemy :pos (vec +50 0) :structure (list 180.0) :grid grid :growth-rate 600 :max-size 8))
+
+(defun maybe-next-level ()
+  (when (next-level-p)
+    (add-object (make-instance 'level-out :action #'next-world))))
+
+(defun next-level-p ()
+  (let ((grid nil)
+        (enemies nil))
+    (do-objects (object :type '(or grid enemy))
+      (etypecase object
+        (grid (setf grid object))
+        (enemy (setf enemies t))))
+    (or (>= (claimed-percentage grid) 90.0)
+        (not enemies))))
 
 (defun game ()
-  (glut:display-window
-   (make-instance 'consix-window :world 'consix)))
+  (let ((player-stats (make-instance 'player-stats)))
+    (glut:display-window
+     (make-instance 'consix-window
+                    :world (mapcar (lambda (level)
+                                     (make-instance level :player-stats player-stats))
+                                   '(level-1 level-2 level-3 level-4))))))

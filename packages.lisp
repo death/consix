@@ -7,6 +7,7 @@
   (:export
    #:defconstant*
    #:defsubst
+   #:define-delegating-accessors
    #:normalize-deg
    #:square
 
@@ -83,7 +84,8 @@
    #:outer-world
    #:this-world-again
    #:display-text
-   #:define-level))
+   #:define-level
+   #:initarg))
 
 (defpackage #:consix
   (:use #:cl #:alexandria #:gob)

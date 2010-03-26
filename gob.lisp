@@ -17,6 +17,18 @@
      (declaim (inline ,name))
      (defun ,name ,lambda-list ,@forms)))
 
+(defmacro define-delegating-accessors (class-name mediating-function-name &rest accessor-names)
+  (let ((x (gensym))
+        (new-value (gensym)))
+    `(progn
+       ,@(loop for name in accessor-names
+               collect
+               `(defmethod ,name ((,x ,class-name))
+                  (,name (,mediating-function-name ,x)))
+               collect
+               `(defmethod (setf ,name) (,new-value (,x ,class-name))
+                  (setf (,name (,mediating-function-name ,x)) ,new-value))))))
+
 (defconstant* single-pi (coerce pi 'single-float))
 
 (defsubst rad (deg)
@@ -720,10 +732,12 @@
              ()
              (:default-initargs ,@initargs))
            (defmethod shared-initialize :after ((world ,name) slot-names &rest initargs)
-             (declare (ignore slot-names initargs))
-             (let ,object-names
-               ,@(loop for object in objects
-                       for name = (object-name object)
-                       for make = `(make-instance ',(object-class-name object) ,@(object-initargs object))
-                       collect `(add-object ,(if name `(setf ,name ,make) make) world))))
+             (declare (ignore slot-names))
+             (flet ((initarg (name &optional default-value)
+                      (getf initargs name default-value)))
+               (let ,object-names
+                 ,@(loop for object in objects
+                         for name = (object-name object)
+                         for make = `(make-instance ',(object-class-name object) ,@(object-initargs object))
+                         collect `(add-object ,(if name `(setf ,name ,make) make) world)))))
          ',name)))))
