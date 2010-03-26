@@ -253,8 +253,6 @@
          (setf *render-cell-weights* nil))))
 
 (defmethod render ((grid grid))
-  (gl:color 1.0 1.0 1.0)
-  (display-text 60 93 "Claimed: ~3,1F %" (claimed-percentage grid))
   (loop for location from 0
         for cell across (cells grid)
         do (multiple-value-bind (row col)
@@ -414,6 +412,7 @@
 (defmethod render ((player player))
   (gl:color 1.0 1.0 1.0)
   (display-text -90 93 "Score: ~9,'0D" (score player))
+  (display-text 60 93 "Claimed: ~3,1F %" (claimed-percentage (grid player)))
   (flet ((draw (x y &optional draw-halo (alpha-multiplier 1.0))
            (gl:with-pushed-matrix
              (gl:translate x y 0.0)
