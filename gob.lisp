@@ -56,7 +56,7 @@
                (push results collection))
              args)
       (nreverse collection)))
-  
+
   (defun call-with-circle-multipliers (fn &optional (segments 30))
     ;; http://github.com/sykopomp/until-it-dies/blob/master/src/primitives.lisp
     ;; Stole implementation of draw-circle and modified it a bit
@@ -83,7 +83,7 @@
            (loop for (x y) in ',(collect-results #'call-with-circle-multipliers segments)
                  do (gl:vertex (* ,radius x) (* ,radius y)))))
       form))
-      
+
 (defun draw-circle (radius &optional (segments 30) (filledp nil))
   (gl:with-primitives (if filledp :triangle-fan :line-loop)
     (call-with-circle-multipliers
@@ -92,7 +92,7 @@
 
 (defsubst mod+ (n m p)
   (mod (+ n m) p))
-  
+
 (defun call-with-star-multipliers (fn points density)
   (let ((xs (make-array points :element-type 'single-float))
         (ys (make-array points :element-type 'single-float)))
@@ -436,7 +436,7 @@
     (setf (gethash :hit-test (order-table world))
           (mapcar (lambda (type) (position type test-order)) hit-test-order))
     (setf (gethash :test (order-table world)) test-order)))
-  
+
 (defmethod reinitialize-instance :before ((world world) &rest initargs)
   (declare (ignore initargs))
   (setf (tick world) nil)
@@ -612,8 +612,29 @@
   (render (world w))
   (glut:swap-buffers))
 
+(defun aspect-viewport (width height r)
+  (labels ((adjust ()
+             (if (>= width height)
+                 (scale1 width height r)
+                 (multiple-value-bind (new-height new-width)
+                     (scale1 height width (/ r))
+                   (values new-width new-height))))
+           (scale1 (big small r)
+             (multiple-value-bind (a b)
+                 (if (<= (* small r) big)
+                     (values (* small r) small)
+                     (let ((new-small (- small (* (- (* small r) big) (/ r)))))
+                       (values (* new-small r) new-small)))
+               (values (floor a) (floor b)))))
+    (multiple-value-bind (new-width new-height) (adjust)
+      (values (floor (- width new-width) 2)
+              (floor (- height new-height) 2)
+              new-width
+              new-height))))
+
 (defmethod glut:reshape ((w game-window) width height)
-  (gl:viewport 0 0 width height)
+  (multiple-value-call #'gl:viewport
+    (aspect-viewport width height (/ (glut:width w) (glut:height w))))
   (gl:matrix-mode :projection)
   (gl:load-identity)
   (with-vec (x y *half-world-dimensions*)
@@ -647,7 +668,7 @@
 (defmethod glut:passive-motion ((w game-window) x y)
   (let ((*world* (world w)))
     (multiple-value-bind (x y) (glu:un-project x y 0.0)
-      (vec-assign (pos (mouse w)) x (- y)))))  
+      (vec-assign (pos (mouse w)) x (- y)))))
 
 (defgeneric left-button (state mouse selected-object picked-object)
   (:method (state mouse selected-object picked-object)
