@@ -198,6 +198,7 @@
   v)
 
 (defsubst unit (&optional (dir 0.0))
+  (declare (type (or real cons) dir))
   (if (consp dir)
       (vec/ dir (vec-mag dir))
       (vec (- (cosd dir)) (- (sind dir)))))
@@ -758,6 +759,7 @@
              (declare (ignore slot-names))
              (flet ((initarg (name &optional default-value)
                       (getf initargs name default-value)))
+               (declare (ignorable #'initarg))
                (let ,object-names
                  ,@(loop for object in objects
                          for name = (object-name object)

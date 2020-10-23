@@ -83,7 +83,7 @@
      (- 1.0
         (/ (current-unclaimed grid)
            (total-unclaimed grid)))))
-  
+
 (defsubst row-1+ (location) (+ location grid-cols))
 (defsubst row-1- (location) (- location grid-cols))
 (defsubst col-1+ (location) (+ location 1))
@@ -131,7 +131,7 @@
     (funcall function)
     (when (eq :delay value)
       (compute-cell-weights (weights grid) grid))))
-  
+
 (defmacro with-weight-computation ((value grid) &body forms)
   `(call-with-weight-computation (lambda () ,@forms) ,value ,grid))
 
@@ -554,7 +554,7 @@
 
 (defsubst (setf head-angle) (new-value enemy)
   (setf (first (enemy-structure enemy)) new-value))
-                            
+
 (defsubst angle-between-positions (source-position target-position)
   (if (vec=~ source-position target-position)
       0.0
@@ -713,7 +713,7 @@
   (when (< (length (enemy-structure enemy)) (max-size enemy))
     (setf (growth-tick enemy) 0)
     (appendf (enemy-structure enemy) (list (lastcar (enemy-structure enemy))))))
-          
+
 (defun enemy-check-growth (enemy)
   (when (and (null (growth-tick enemy))
              (plusp *tick*)
@@ -753,10 +753,10 @@
 
 (defun add-score-entry (score-entry scores)
   (if (plusp (score-entry-score score-entry))
-      (loop repeat scores-top-n
-            for score in (merge 'list (list score-entry) scores
-                                #'> :key #'score-entry-score)
-            collect score)
+      (let ((new-scores
+              (merge 'list (list score-entry) scores
+                     #'> :key #'score-entry-score)))
+        (subseq new-scores 0 (min scores-top-n (length new-scores))))
       scores))
 
 (defun score-top-n-p (score scores)
